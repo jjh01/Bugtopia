@@ -10,11 +10,11 @@ namespace HeartopiaMod
     // equip path (rod/scanner/net each have their own confirmation reader and retry cadence). What
     // needs a single owner is the pair around that: the "previous tool" capture and restore.
     //
-    // Each farm captures the equipped tool when it is switched on and re-equips it when switched off.
-    // Run two farms and that snapshot is another farm's tool, so disabling one yanks the handhold out
-    // from under the other (conflict #2 in the plan). While this broker is active, the three farms
-    // skip their own capture/restore (they check IsActive) and the broker holds the one snapshot:
-    // taken once when the coordinator takes over, replayed once when it lets go.
+    // The farms themselves no longer capture or restore anything: switching one off leaves whatever
+    // is in hand alone (see AutoFishingFarm.SetEnabled). Putting the PLAYER's tool back after a
+    // combined run is therefore this broker's job alone — it holds the one snapshot, taken once when
+    // the coordinator takes over and replayed once when it lets go. (Historically each farm kept its
+    // own snapshot and skipped it while IsActive, which is where conflict #2 in the plan came from.)
     //
     // The capture is DEFERRED by design. Reading the current tool goes through
     // TryGetCurrentToolInfo → a cold AuraMono ToolSystem resolve if the module is not warm yet, which
@@ -96,7 +96,7 @@ namespace HeartopiaMod
         // restoreTool=false when a farm is STILL enabled after the coordinator lets go: that farm is
         // about to equip its own tool on its next tick, so putting the player's tool back first would
         // only add a round-trip of churn. The capture is dropped either way — the coordinator is no
-        // longer the owner, and each farm's own capture/restore is live again from here.
+        // longer the owner.
         public static void Release(HeartopiaComplete host, bool restoreTool)
         {
             if (!active)
@@ -119,7 +119,7 @@ namespace HeartopiaMod
             }
 
             // Clearing `active` BEFORE the restore is deliberate: any farm still enabled is free to
-            // take the handhold back on its next tick, and its own capture/restore is live again.
+            // take the handhold back on its next tick.
             if (restoreToolId != 0)
             {
                 host.EquipHandTool(restoreToolId);
@@ -128,8 +128,8 @@ namespace HeartopiaMod
             }
 
             // Nothing worth restoring. Leave whatever the last slice held: any farm that is still
-            // enabled will re-equip what it needs, and if none is, its own SetEnabled(false) path
-            // already unequipped. Unequipping here would fight both cases.
+            // enabled will re-equip what it needs, and if none is, the farms leave the hand alone on
+            // disable too — so the player keeps the last farm tool out, exactly as with a lone farm.
             FeatureLog.Life("FarmToolBroker", "handhold released — no player tool to restore" + (hadCapture ? string.Empty : " (capture never ran)"));
         }
 

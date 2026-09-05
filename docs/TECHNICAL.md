@@ -451,9 +451,9 @@ Reflection / Il2Cpp calls on `HeartopiaComplete` (representative):
 
 ### Tool management
 
-- Saves `previousToolEquipType` before equipping rod.
-- `RestorePreviousTool` on disable.
-- Retry equip every 3.25 s if rod missing.
+- Equips the rod (`EquipHandTool(3)`) when it is missing; retry every 3.25 s.
+- Disabling leaves the hand alone: the rod is neither unequipped nor swapped back for the tool held before enabling (the same holds for `InsectNetFarm` / `BirdNetFarm`). Only the fishing press is released.
+- While Combined Farming coordinates the farms, `FarmToolBroker` owns the one "player tool" capture/restore pair.
 
 ### Instant Catch (optional toggle)
 

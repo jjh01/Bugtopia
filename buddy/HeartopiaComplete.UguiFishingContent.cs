@@ -688,9 +688,9 @@ namespace HeartopiaMod
             this.EquipHandTool(3);
         }
 
-        // AutoFishingFarm.cs:657-665 — SetEnabled MUST get the host: enabling captures the
-        // previously-equipped tool, disabling restores it and releases the fishing press;
-        // a null host would silently break the tool restore. No SaveKeybinds (source parity).
+        // AutoFishingFarm.cs — SetEnabled MUST get the host: disabling releases the fishing press
+        // through it; a null host would leave the reel held down. The rod itself is left in hand on
+        // disable (intentional — see AutoFishingFarm.SetEnabled). No SaveKeybinds (source parity).
         private void OnUguiFishingShadowNetToggled(bool value)
         {
             if (value == AutoFishingFarm.IsEnabled)

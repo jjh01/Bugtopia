@@ -1595,7 +1595,9 @@ namespace HeartopiaMod
             string held = "?";
             // Only ask for the held tool once GetTool has answered at least once: that proves the
             // ToolSystem module is resolved and warm, so this cannot trigger a COLD resolve racing
-            // the GC (the crash class documented at BirdNetFarm.CapturePreviousTool).
+            // the GC (the crash class documented at FarmToolBroker's deferred capture — it first
+            // surfaced as the Auto Bird Farm enable crash, back when the farms captured the
+            // player's tool on their enable frame).
             if (toolSystemProbeConfirmed && host.TryGetCurrentToolInfo(out int heldToolId, out string heldToolName, out string _))
             {
                 held = heldToolId + (string.IsNullOrEmpty(heldToolName) ? string.Empty : "/" + heldToolName);

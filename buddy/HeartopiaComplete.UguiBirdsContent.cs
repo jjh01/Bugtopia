@@ -408,10 +408,10 @@ namespace HeartopiaMod
             this.EquipHandTool(4);
         }
 
-        // BirdNetFarm.cs:479-484 — SetEnabled MUST get the host: enabling captures the
-        // previously-equipped tool, disabling restores it (and resets both session counters); a
-        // null host would silently break the tool capture/restore. No save (source parity —
-        // SetEnabled itself is the whole block).
+        // BirdNetFarm.cs — SetEnabled MUST get the host: it clears the bird-farm runtime state
+        // through it (and resets both session counters). The Bird Scanner is left in hand on
+        // disable (intentional — see BirdNetFarm.SetEnabled). No save (source parity — SetEnabled
+        // itself is the whole block).
         private void OnUguiBirdsEnabledToggled(bool value)
         {
             if (value == BirdNetFarm.IsEnabled)
