@@ -517,6 +517,7 @@ namespace HeartopiaMod
 
             this.netCookCaptureGeneration++;
             this.netCookCaptureInProgress = false;
+            this.netCookCapturePending = false; // Reset Capture also cancels a queued click
             HeartopiaComplete.DebugEspClearGroup("mass-cook-capture");
 
             this.netCookCookerNetId = 0U;
@@ -685,6 +686,21 @@ namespace HeartopiaMod
                         continue;
                     }
 
+                    // A Phase-0 stove is a prepare candidate only while it is really Idle. Anything else
+                    // means a dish is already in flight on it — a prepare the server rejected and then
+                    // accepted on the retry, a dish that outlived a stop, someone else's dish on a
+                    // shared stove — and the old loop just kept trying to prepare over it, never
+                    // watching its danger window. Adopt it instead so every stove in the set is
+                    // attended, whoever started the dish.
+                    if (this.TryAttendNetCookInFlightDish(i, target, now, ref readyTargets))
+                    {
+                        if (processedTargets >= NetCookMaxActionsPerTick)
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+
                     if (!this.TryBuildNetCookMaterials(this.netCookRecipeId, out List<uint> freshMaterials, out string materialStatus))
                     {
                         this.BeginNetCookDrain(this.FormatNetCookIngredientDrainReason(materialStatus));
@@ -810,6 +826,7 @@ namespace HeartopiaMod
                         else if (cookingStatus == 3 || cookingStatus == 4)
                         {
                             target.IdleRetries = 0;
+                            target.DangerSeenAt = now;
                             if (now - target.LastStatusActionAt < 1.5f)
                             {
                                 target.NextActionAt = now + this.GetNetCookStatusPollDelay(target);
@@ -817,6 +834,7 @@ namespace HeartopiaMod
                             else if (this.TryInvokeNetCookInteract())
                             {
                                 target.Phase = 3;
+                                target.ReliefSentAt = now;
                                 target.LastStatusActionAt = now;
                                 target.LastCookCommandAt = now;
                                 target.SentCount++;
@@ -833,14 +851,10 @@ namespace HeartopiaMod
                         else if (cookingStatus == 5 || cookingStatus == 6)
                         {
                             target.IdleRetries = 0;
+                            this.LogNetCookDishOutcome(target, cookingStatus, resultRecipeId, foodQuality, now, "cooking");
                             if (this.TryInvokeNetCookInteract())
                             {
-                                target.Phase = 0;
-                                target.ContinuePulses = 0;
-                                target.LastStatus = -1;
-                                target.LastStatusActionAt = -999f;
-                                target.IdleRetries = 0;
-                                target.LastCookCommandAt = -999f;
+                                this.ResetNetCookTargetForNextDish(target, now);
                                 target.SentCount++;
                                 this.netCookSentCount++;
                                 this.RecordNetCookCompletedDish();
@@ -1106,6 +1120,14 @@ namespace HeartopiaMod
                 return 99;
             }
 
+            // An urgent status straight off the detour outranks everything, whatever the phase: this is
+            // how a stove the mod never started a dish on gets to the front instead of sorting with the
+            // idle ones.
+            if (target.UrgentStatus == 3 || target.UrgentStatus == 4)
+            {
+                return 0;
+            }
+
             if (target.Phase == 3 || target.LastStatus == 3 || target.LastStatus == 4)
             {
                 return 0;
@@ -1114,6 +1136,11 @@ namespace HeartopiaMod
             if (target.Phase == 1)
             {
                 return 1;
+            }
+
+            if (target.UrgentStatus == 5 || target.UrgentStatus == 6)
+            {
+                return 2;
             }
 
             if (target.LastStatus == 5 || target.LastStatus == 6)
@@ -1308,6 +1335,186 @@ namespace HeartopiaMod
                 || status.IndexOf("Recipe has no usable material slots", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        private string GetNetCookRecipeLabelById(int recipeId)
+        {
+            if (recipeId <= 0)
+            {
+                return "?";
+            }
+
+            for (int i = 0; i < this.netCookRecipeEntries.Count; i++)
+            {
+                if (this.netCookRecipeEntries[i].Key == recipeId)
+                {
+                    return this.netCookRecipeEntries[i].Value;
+                }
+            }
+
+            return "recipe " + recipeId;
+        }
+
+        private static string FormatNetCookAge(float stamp, float now)
+        {
+            return stamp > 0f ? ((now - stamp).ToString("F1") + "s ago") : "NEVER";
+        }
+
+        // One plain line per finished dish. A burn used to look exactly like a success in the log —
+        // both were just a status change — which is why "why did a bizarre dish appear" could not be
+        // answered from it. The failure line is force-logged (never gated behind a verbosity flag) and
+        // says the two things that decide a burn: was the danger window ever SEEN, and was relief
+        // actually SENT for it.
+        private void LogNetCookDishOutcome(NetCookTargetContext target, int cookingStatus, int resultRecipeId, int foodQuality, float now, string where)
+        {
+            if (target == null || (cookingStatus != 5 && cookingStatus != 6))
+            {
+                return;
+            }
+
+            if (cookingStatus == 5)
+            {
+                this.NetCookLog("DISH OK stove=" + target.CookerNetId
+                    + " " + this.GetNetCookRecipeLabelById(resultRecipeId)
+                    + " quality=" + foodQuality
+                    + " relief=" + (target.DangerSeenAt > 0f ? ("yes, " + FormatNetCookAge(target.ReliefSentAt, now)) : "not needed")
+                    + " [" + where + "]");
+                return;
+            }
+
+            this.NetCookHookLog("DISH FAILED (bizarre food) stove=" + target.CookerNetId
+                + " lo=" + target.LevelObjectNetId
+                + " " + this.GetNetCookRecipeLabelById(resultRecipeId)
+                + " quality=" + foodQuality
+                + " phase=" + target.Phase
+                + " ourDish=" + target.PrepareConfirmed
+                + " dangerSeen=" + FormatNetCookAge(target.DangerSeenAt, now)
+                + " reliefSent=" + FormatNetCookAge(target.ReliefSentAt, now)
+                + " lastStatusSeen=" + FormatNetCookAge(target.LastStatusSeenAt, now)
+                + " [" + where + "]"
+                + (target.DangerSeenAt <= 0f
+                    ? " — the danger window never reached the mod, so nothing was sent: the mini-game ran unattended"
+                    : (target.ReliefSentAt <= 0f
+                        ? " — danger was seen but relief was never sent"
+                        : " — relief was sent and still failed")));
+        }
+
+        // Returns true when the stove already has a dish in flight and this call has handled it:
+        // relief, collection, or handing it to the normal cooking machinery. False means the stove is
+        // genuinely idle and the caller may prepare on it.
+        //
+        // Mass cook keeps EVERY stove in the working set attended, not only the ones it started a dish
+        // on. A stove can be cooking outside the mod's bookkeeping — a prepare the server rejected and
+        // then accepted on the retry, a dish that outlived a stop, someone else's dish on a shared
+        // stove — and a Phase-0 stove never reached the status branches at all: the loop only ever
+        // tried to prepare on it. Its danger window therefore passed unattended and the dish burned
+        // (field log: stove 4000015627 went Preparing -> Failed with no Danger ever observed, while the
+        // two stoves the mod had committed were relieved and came out fine).
+        //
+        // Relief is unconditional because it can only save a dish and takes nothing. Collection is
+        // unconditional too — it frees the stove for the next dish — but a dish the mod did not commit
+        // still does not count against the requested quantity: PrepareConfirmed stays false and
+        // RecordNetCookCompletedDish is not called for it.
+        private bool TryAttendNetCookInFlightDish(int targetIndex, NetCookTargetContext target, float now, ref int readyTargets)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            if (!this.TryGetNetCookTargetCookingStatus(target, out int cookingStatus, out int resultRecipeId, out int foodQuality, out _))
+            {
+                target.UrgentStatus = 0;
+                return false; // no status source — behave exactly as before and let the caller prepare
+            }
+
+            target.LastStatusSeenAt = now;
+            if (cookingStatus == 0)
+            {
+                target.UrgentStatus = 0;
+                return false;
+            }
+
+            if (target.LastStatus != cookingStatus)
+            {
+                target.LastStatus = cookingStatus;
+                this.NetCookLog("Stove " + target.CookerNetId + " already has a dish the mod did not start (status="
+                    + this.GetNetCookCookingStatusName(cookingStatus)
+                    + " " + this.GetNetCookRecipeLabelById(resultRecipeId)
+                    + " quality=" + foodQuality + "); attending it.");
+            }
+
+            if (cookingStatus == 1 || cookingStatus == 2)
+            {
+                // Hand it to the normal machinery, which polls and relieves from here on.
+                target.Phase = 2;
+                target.UrgentStatus = 0;
+                target.NextActionAt = now + this.GetNetCookStatusPollDelay(target);
+                this.netCookTargets[targetIndex] = target;
+                return true;
+            }
+
+            if (cookingStatus == 3 || cookingStatus == 4)
+            {
+                target.DangerSeenAt = now;
+                if (now - target.LastStatusActionAt < 1.5f)
+                {
+                    target.NextActionAt = now + 0.5f;
+                    this.netCookTargets[targetIndex] = target;
+                    return true;
+                }
+
+                if (this.TryInvokeNetCookInteract())
+                {
+                    target.Phase = 3;
+                    target.ReliefSentAt = now;
+                    target.LastStatusActionAt = now;
+                    target.LastCookCommandAt = now;
+                    target.UrgentStatus = 0;
+                    target.SentCount++;
+                    this.netCookSentCount++;
+                    target.NextActionAt = now + NetCookPhaseAdvanceDelaySeconds;
+                    this.netCookTargets[targetIndex] = target;
+                    readyTargets++;
+                    return true;
+                }
+
+                this.netCookStatus = "InteractWithCooker (adopted dish) failed on stove " + target.CookerNetId + ". Retrying...";
+                target.NextActionAt = now + 1.25f;
+                this.netCookTargets[targetIndex] = target;
+                return true;
+            }
+
+            // 5 Succeed / 6 Failed — collect so the stove is free for the next dish.
+            this.LogNetCookDishOutcome(target, cookingStatus, resultRecipeId, foodQuality, now, "adopted dish");
+            if (this.TryInvokeNetCookInteract())
+            {
+                this.ResetNetCookTargetForNextDish(target, now);
+                target.SentCount++;
+                this.netCookSentCount++;
+                this.netCookTargets[targetIndex] = target;
+                readyTargets++;
+                return true;
+            }
+
+            this.netCookStatus = "Collect (adopted dish) failed on stove " + target.CookerNetId + ". Retrying...";
+            target.NextActionAt = now + 1.25f;
+            this.netCookTargets[targetIndex] = target;
+            return true;
+        }
+
+        private void ResetNetCookTargetForNextDish(NetCookTargetContext target, float now)
+        {
+            target.Phase = 0;
+            target.ContinuePulses = 0;
+            target.LastStatus = -1;
+            target.LastStatusActionAt = -999f;
+            target.IdleRetries = 0;
+            target.LastCookCommandAt = -999f;
+            target.UrgentStatus = 0;
+            target.DangerSeenAt = -999f;
+            target.ReliefSentAt = -999f;
+            target.NextActionAt = now + NetCookCollectRestartDelaySeconds;
+        }
+
         private bool ProcessNetCookDrainTarget(int targetIndex, NetCookTargetContext target, float now, out bool targetRemoved)
         {
             targetRemoved = false;
@@ -1383,10 +1590,16 @@ namespace HeartopiaMod
                 return false;
             }
 
+            target.LastStatusSeenAt = now;
+            if (cookingStatus == 3 || cookingStatus == 4)
+            {
+                target.DangerSeenAt = now;
+            }
             if (target.LastStatus != cookingStatus)
             {
                 target.LastStatus = cookingStatus;
                 this.NetCookLog("Drain stove " + target.CookerNetId + " status=" + this.GetNetCookCookingStatusName(cookingStatus) + " result=" + resultRecipeId + " quality=" + foodQuality);
+                this.LogNetCookDishOutcome(target, cookingStatus, resultRecipeId, foodQuality, now, "draining");
             }
 
             if (cookingStatus == 0)
@@ -2114,12 +2327,28 @@ namespace HeartopiaMod
             for (int i = 0; i < this.netCookTargets.Count; i++)
             {
                 NetCookTargetContext target = this.netCookTargets[i];
-                if (target != null && target.LevelObjectNetId == levelObjectNetId && target.NextActionAt > now)
+                if (target == null || target.LevelObjectNetId != levelObjectNetId)
+                {
+                    continue;
+                }
+
+                // Stamp the status as well as waking the target: the action sort ranks by LastStatus,
+                // which is only set once a POLL has seen the status. A stove the mod has no dish on
+                // (Phase 0) polls last of all, so without this stamp a danger window can sit behind
+                // every idle stove in the set until it burns.
+                target.UrgentStatus = status;
+                target.UrgentStatusAt = now;
+                if (status == 3)
+                {
+                    target.DangerSeenAt = now;
+                }
+                if (target.NextActionAt > now)
                 {
                     target.NextActionAt = now;
-                    this.NetCookDiagLog("urgent status " + this.GetNetCookCookingStatusName(status)
-                        + " — waking stove=" + target.CookerNetId + " lo=" + levelObjectNetId);
                 }
+                this.NetCookDiagLog("urgent status " + this.GetNetCookCookingStatusName(status)
+                    + " — waking stove=" + target.CookerNetId + " lo=" + levelObjectNetId
+                    + " phase=" + target.Phase);
             }
         }
 
@@ -3461,6 +3690,17 @@ namespace HeartopiaMod
         private void UpdateNetCookRuntimeReadiness()
         {
             float now = Time.unscaledTime;
+            // Sampled on a timer rather than every frame: this now ticks unconditionally (it used to
+            // run only while the Mass Cook tab was open, which meant the 3s stability window started
+            // when the tab opened — so an immediate Capture click always lost, however long the game
+            // had been running). A GameObject.Find four times a second is nothing; the window it feeds
+            // is 3s wide.
+            if (now < this.nextNetCookRuntimeReadinessSampleAt)
+            {
+                return;
+            }
+            this.nextNetCookRuntimeReadinessSampleAt = now + NetCookRuntimeReadinessSampleSeconds;
+
             bool playerReady = false;
             try
             {
@@ -3486,14 +3726,92 @@ namespace HeartopiaMod
             }
         }
 
+        // The Capture Stoves button. Never refuses outright for a closed runtime gate: the click IS the
+        // user's intent, and making them read a countdown and click again is friction for nothing. If
+        // the gate is shut the request is remembered and fired the moment it opens
+        // (ProcessNetCookPendingCapture). Only the explicit button goes through here — the internal
+        // start paths keep their own retry semantics.
+        private bool RequestNetCookCapture(out bool queued, out string status)
+        {
+            queued = false;
+            if (!this.IsNetCookRuntimeCaptureReady(out string gateStatus))
+            {
+                this.netCookCapturePending = true;
+                this.netCookCapturePendingSince = Time.unscaledTime;
+                status = gateStatus;
+                this.netCookStatus = gateStatus;
+                this.NetCookLog("Capture queued while the runtime gate is closed: " + gateStatus);
+                queued = true;
+                return false;
+            }
+
+            this.netCookCapturePending = false;
+            bool captured = this.TryCaptureNetCookFromCurrentTarget();
+            status = this.netCookStatus;
+            return captured;
+        }
+
+        // Runs every frame (see the OnUpdate tick) so a queued capture fires the instant the gate opens.
+        private void ProcessNetCookPendingCapture()
+        {
+            if (!this.netCookCapturePending)
+            {
+                return;
+            }
+
+            float now = Time.unscaledTime;
+            if (now - this.netCookCapturePendingSince > NetCookPendingCaptureTimeoutSeconds)
+            {
+                // Do not surprise the player with a capture minutes after they asked for one.
+                this.netCookCapturePending = false;
+                this.netCookStatus = "Capture request expired — the world never became ready. Try Capture Stoves again.";
+                this.NetCookLog(this.netCookStatus);
+                this.AddMenuNotification(this.netCookStatus, new Color(1f, 0.55f, 0.55f));
+                return;
+            }
+
+            if (!this.IsNetCookRuntimeCaptureReady(out _))
+            {
+                return;
+            }
+
+            this.netCookCapturePending = false;
+            this.NetCookLog("Runtime gate opened after " + (now - this.netCookCapturePendingSince).ToString("F1")
+                + "s — running the queued capture.");
+            if (this.TryCaptureNetCookFromCurrentTarget())
+            {
+                bool expanding = this.netCookCaptureCoroutine != null;
+                string notice = expanding
+                    ? "Expanding stove capture..."
+                    : (string.IsNullOrWhiteSpace(this.netCookStatus) ? "Mass cook stoves captured" : this.netCookStatus);
+                this.AddMenuNotification(notice, expanding ? new Color(1f, 0.85f, 0.45f) : new Color(0.45f, 1f, 0.55f));
+                return;
+            }
+
+            // A cooldown or a scan that found nothing: keep waiting rather than dropping the request,
+            // the gate check above already proved the runtime is up.
+            if (this.netCookCaptureInProgress || Time.unscaledTime < this.nextNetCookCaptureAllowedAt)
+            {
+                this.netCookCapturePending = true;
+                return;
+            }
+
+            this.AddMenuNotification(this.netCookStatus ?? "Capture failed.", new Color(1f, 0.55f, 0.55f));
+        }
+
         private bool IsNetCookRuntimeCaptureReady(out string status)
         {
             this.UpdateNetCookRuntimeReadiness();
 
             float now = Time.unscaledTime;
-            if (now < NetCookMinimumStartupCaptureDelaySeconds)
+            // The world-ready gate, not a stopwatch from process start. The old check refused for the
+            // first 12s of the PROCESS, which is both too much (it blocked a legitimate capture in a
+            // world that was already up) and too little (it was long satisfied by the time a homeland
+            // swap tore the world down again). IsWorldReady carries its own settle grace and closes
+            // during transitions that produce no loading screen at all.
+            if (!this.IsWorldReady)
             {
-                status = "Game is still warming up. Try Capture Stoves again in " + Mathf.CeilToInt(NetCookMinimumStartupCaptureDelaySeconds - now) + "s.";
+                status = "World is still loading. Capture will run as soon as it is ready.";
                 return false;
             }
 
@@ -10188,6 +10506,17 @@ namespace HeartopiaMod
             // silently rejected server-side (shared bag materials race), and counting sends burned
             // the limit and started the drain before the Idle-resync retry could fire.
             public bool PrepareConfirmed;
+            // Urgent status stamped straight off the OnUpdateCookerStatus detour
+            // (WakeNetCookTargetsForUrgentStatus). It is the only signal that reaches a stove the mod
+            // never started a dish on, and it lets the action sort put a burning stove ahead of the
+            // idle ones instead of behind them.
+            public int UrgentStatus;
+            public float UrgentStatusAt = -999f;
+            // Attendance trail for the dish-outcome log line: was the danger window ever seen, and was
+            // relief actually sent for it.
+            public float DangerSeenAt = -999f;
+            public float ReliefSentAt = -999f;
+            public float LastStatusSeenAt = -999f;
             // Set when a global CookResultEvent(TakeFood) confirms this stove's dish was collected —
             // the authoritative "finished" signal that reaches the client even at distance (the post-
             // collect Idle goes through ComponentRemoved<CookingStatusComponent>, NOT OnUpdateCookerStatus,

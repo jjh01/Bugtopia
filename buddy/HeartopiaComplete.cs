@@ -214,8 +214,19 @@ namespace HeartopiaMod
         // mid-fishing, but it has to invent the placement geometrically.
         private bool autoRepairNoAnimationEnabled = false;
         // Only consulted while autoRepairNoAnimationEnabled: ON = drop the kit on the ground under
-        // the player; OFF = 3m ahead at the player's height.
+        // the player; OFF = the offset below, at the player's height.
         private bool autoRepairThrowAtFeetEnabled = false;
+        // Direct-throw placement, as an XYZ offset in the PLAYER'S OWN frame (Unity local axes:
+        // X = right, Y = up, Z = forward) applied before the game's 0.3m sink. Player-frame rather
+        // than world, so the spot stays put relative to the character whichever way they are facing.
+        // Z defaults to ToolRestorerThrowDistance, which reproduces the fixed "3m straight ahead"
+        // this used to hard-code. Each axis is bounded by +/-ToolRestorerThrowMaxOffset, the repair
+        // aura's radius, because a kit that lands further away than the aura reaches repairs nothing
+        // at all. All three are ignored while autoRepairThrowAtFeetEnabled is on, and the whole
+        // group is ignored on the animated path (the game picks the spot there).
+        private float autoRepairThrowOffsetX = 0f;
+        private float autoRepairThrowOffsetY = 0f;
+        private float autoRepairThrowOffsetZ = ToolRestorerThrowDistance;
         private bool autoEatOnToastEnabled = false; // Toggle for auto eat via toast notification
         private static bool AutoEatRepairLogsEnabled => MasterLogAutoEatRepair;
         private bool autoEatAutoTriggerEnabled = true;
@@ -652,10 +663,12 @@ namespace HeartopiaMod
             // active check (below) installed it too late and missed the spawn burst.
             this.EnsureNetCookEventHooks();
             this.UpdateNetCookStatusDiagnosticsOnUpdate();
-            if (this.netCookEnabled || this.netCookTargets.Count > 0 || this.IsUguiShellFeaturesSubTabActive(UguiShellFeaturesMassCookSubIndex))
-            {
-                this.UpdateNetCookRuntimeReadiness();
-            }
+            // Unconditional now (self-throttled to 4 Hz): gating this on the tab being open meant the
+            // 3s stability window only started when the tab opened, so an immediate Capture Stoves
+            // click always lost the race however long the game had been up. The pending-capture pump
+            // rides along so a queued click fires the instant the gate opens.
+            this.UpdateNetCookRuntimeReadiness();
+            this.ProcessNetCookPendingCapture();
             if (this.petPlayAutoCatEnabled || this.petPlayAutoDogEnabled || this.petPlayAutoWashEnabled)
             {
                 this.EnsurePetPlayRuntimePatches();
@@ -4359,8 +4372,13 @@ namespace HeartopiaMod
         private const int NetCookDeferredOwnerWindowSeedTargetThreshold = 6;
         private const int NetCookDeferredBroadRefreshTargetThreshold = 24;
         private const float NetCookDeferredBroadRefreshStartDelaySeconds = 0.75f;
-        private const float NetCookMinimumStartupCaptureDelaySeconds = 12f;
         private const float NetCookRuntimeReadyGraceSeconds = 3f;
+        private const float NetCookRuntimeReadinessSampleSeconds = 0.25f;
+        private const float NetCookPendingCaptureTimeoutSeconds = 120f;
+        private float nextNetCookRuntimeReadinessSampleAt = 0f;
+        // A Capture Stoves click made while the runtime gate was shut, waiting for it to open.
+        private bool netCookCapturePending = false;
+        private float netCookCapturePendingSince = 0f;
         // Raised from 32: dense town kitchens hold far more stoves and the per-tick action cap
         // (NetCookMaxActionsPerTick) already bounds the frame cost, so a larger capture set only
         // lengthens the round-robin, it doesn't spike a frame.

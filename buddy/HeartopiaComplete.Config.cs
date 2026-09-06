@@ -359,6 +359,7 @@ namespace HeartopiaMod
             data.netCookCookQuantity = 1;
             data.homelandFarmWaterRadius = this.homelandFarmWaterRadius;
             data.homelandFarmAutoFertilizeEnabled = this.homelandFarmAutoFertilizeEnabled;
+            data.homelandFarmPrivacyRadius = this.homelandFarmPrivacyRadius;
             data.autoFishScanTimeout = -1f;
             data.autoFishTeleportDelay = -1f;
             // While a fishing route is active the live range/toggles are the route's forced
@@ -424,6 +425,9 @@ namespace HeartopiaMod
             data.autoRepairOnToastEnabled = FishingRouteFeature.Active ? FishingRouteFeature.SnapshotAutoRepair : this.autoRepairOnToastEnabled;
             data.autoRepairNoAnimationEnabled = this.autoRepairNoAnimationEnabled;
             data.autoRepairThrowAtFeetEnabled = this.autoRepairThrowAtFeetEnabled;
+            data.autoRepairThrowOffsetX = this.autoRepairThrowOffsetX;
+            data.autoRepairThrowOffsetY = this.autoRepairThrowOffsetY;
+            data.autoRepairThrowOffsetZ = this.autoRepairThrowOffsetZ;
             data.trimRepairThrowAnimation = this.trimRepairThrowAnimation;
             data.repairThrowPathTrimMigrated = true;
             data.autoEatOnToastEnabled = this.autoEatOnToastEnabled;
@@ -750,6 +754,7 @@ namespace HeartopiaMod
             this.ResetNetCookDishLimitToDefault();
             this.homelandFarmWaterRadius = Mathf.Clamp(data.homelandFarmWaterRadius > 0f ? data.homelandFarmWaterRadius : HomelandFarmDefaultWaterRadius, HomelandFarmMinWaterRadius, HomelandFarmMaxWaterRadius);
             this.homelandFarmAutoFertilizeEnabled = data.homelandFarmAutoFertilizeEnabled;
+            this.homelandFarmPrivacyRadius = Mathf.Clamp(data.homelandFarmPrivacyRadius, HomelandFarmPrivacyMinRadius, HomelandFarmPrivacyMaxRadius);
             this.saved_autoFishScanTimeout = data.autoFishScanTimeout;
             this.saved_autoFishTeleportDelay = data.autoFishTeleportDelay;
             this.saved_autoFishFishShadowDetectRange = data.autoFishFishShadowDetectRange;
@@ -866,6 +871,9 @@ namespace HeartopiaMod
             this.autoRepairOnToastEnabled = data.autoRepairOnToastEnabled;
             this.autoRepairNoAnimationEnabled = data.autoRepairNoAnimationEnabled;
             this.autoRepairThrowAtFeetEnabled = data.autoRepairThrowAtFeetEnabled;
+            this.autoRepairThrowOffsetX = Mathf.Clamp(data.autoRepairThrowOffsetX, -ToolRestorerThrowMaxOffset, ToolRestorerThrowMaxOffset);
+            this.autoRepairThrowOffsetY = Mathf.Clamp(data.autoRepairThrowOffsetY, -ToolRestorerThrowMaxOffset, ToolRestorerThrowMaxOffset);
+            this.autoRepairThrowOffsetZ = Mathf.Clamp(data.autoRepairThrowOffsetZ, -ToolRestorerThrowMaxOffset, ToolRestorerThrowMaxOffset);
             this.trimRepairThrowAnimation = data.trimRepairThrowAnimation;
             if (!data.repairThrowPathTrimMigrated)
             {
