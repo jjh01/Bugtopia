@@ -212,6 +212,11 @@ namespace HeartopiaMod
                 entries.Add(this.CreateLiveFeatureEntry("Auto Collect Bubbles", "Active"));
             }
 
+            if (this.auraFarmEnabled)
+            {
+                entries.Add(this.CreateLiveFeatureEntry("Aura Farm: Dog Poop", this.GetPetPoopLiveSummary()));
+            }
+
             if (this.bunnyHopEnabled)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Bunny Hop", "Active"));
@@ -255,6 +260,11 @@ namespace HeartopiaMod
             if (this.friendInteractUnlockEnabled)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Duo Unlock", this.friendInteractUnlockStatus));
+            }
+
+            if (this.paintStyleUnlockEnabled)
+            {
+                entries.Add(this.CreateLiveFeatureEntry("Paint Styles", this.paintStyleUnlockStatus));
             }
 
             if (this.foragingAnimEnabled && this.autoFarmActive)

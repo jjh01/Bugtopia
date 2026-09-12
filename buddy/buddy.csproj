@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
     <Platform Condition="'$(Platform)' == ''">AnyCPU</Platform>
@@ -302,14 +302,19 @@
     <Compile Include="HookFreeDelegate.cs" />
     <Compile Include="InputRebindFeature.cs" />
     <Compile Include="EmoteUnlockFeature.cs" />
+    <Compile Include="PaintStyleUnlockFeature.cs" />
+    <Compile Include="HeartopiaComplete.UguiColorPicker.cs" />
+    <Compile Include="FurnitureDyeFeature.cs" />
     <Compile Include="ActionPanelFeature.cs" />
     <Compile Include="ForagingAnimationFeature.cs" />
+    <Compile Include="ForagingAnimationFeature.SeaClean.cs" />
     <Compile Include="FriendInteractUnlockFeature.cs" />
     <Compile Include="GameKeyBindings.cs" />
     <Compile Include="CameraModeHotkeyGuard.cs" />
     <Compile Include="HeartopiaComplete.UguiGameKeysContent.cs" />
     <Compile Include="AnimalCareFeature.cs" />
     <Compile Include="CarpetStampFeature.cs" />
+    <Compile Include="ClearMissedCallsFeature.cs" />
     <Compile Include="CraftAnimationSkipFeature.cs" />
     <Compile Include="AutoLearnRecipeFeature.cs" />
     <Compile Include="RepairThrowAnimationTrimFeature.cs" />
@@ -490,6 +495,8 @@
     <Compile Include="BubbleFeature.cs" />
     <Compile Include="BubbleSpawnRewriteFeature.cs" />
     <Compile Include="AutoBubbleCollectFeature.cs" />
+    <Compile Include="PetPoopFeature.cs" />
+    <Compile Include="NetCookSlotPrefsFeature.cs" />
     <Compile Include="MelonLoaderPlugin.cs" />
     <Compile Include="MelonSceneHookCleanup.cs" />
     <Compile Include="ClassInjectorHookTrimFeature.cs" />

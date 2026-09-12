@@ -194,7 +194,10 @@ namespace HeartopiaMod
             data.farmWalkToNodeEnabled = this.farmWalkToNodeEnabled;
             data.farmWalkTrackCompareEnabled = this.farmWalkTrackCompareEnabled;
             data.farmWalkToAreaEnabled = this.farmWalkToAreaEnabled;
+            data.farmWalkRepathHoldNearCorner = this.farmWalkRepathHoldNearCorner;
+            data.farmWalkKeepFinalNode = this.farmWalkKeepFinalNode;
             data.farmWalkUseVehicleEnabled = this.farmWalkUseVehicleEnabled;
+            data.farmWalkVehicleFixEnabled = this.farmWalkVehicleFixEnabled;
             data.farmWalkVehicleMinDistance = this.farmWalkVehicleMinDistance;
             data.farmWalkVehicleDismountDistance = this.farmWalkVehicleDismountDistance;
             data.resourceAutoRepairPauseSeconds = this.resourceAutoRepairPauseSeconds;
@@ -239,7 +242,10 @@ namespace HeartopiaMod
             data.skipShowOffAnimations = this.skipShowOffAnimations;
             data.quietCongratsPopups = this.quietCongratsPopups;
             data.quietBpPayRewardPopup = this.quietBpPayRewardPopup;
+            data.quietPetPhotoResultPopup = this.quietPetPhotoResultPopup;
             data.emoteUnlockEnabled = this.emoteUnlockEnabled;
+            data.paintStyleUnlockEnabled = this.paintStyleUnlockEnabled;
+            data.furnitureDyePickerEnabled = this.furnitureDyePickerEnabled;
             data.friendInteractUnlockEnabled = this.friendInteractUnlockEnabled;
             data.foragingAnimEnabled = this.foragingAnimEnabled;
             data.skipCraftDyeAnimations = this.skipCraftDyeAnimations;
@@ -353,6 +359,9 @@ namespace HeartopiaMod
             data.netCookMiniGameOnly = this.netCookMiniGameOnly;
             data.netCookMoveIngredients = this.netCookMoveIngredients;
             data.netCookRememberStoves = this.netCookRememberStoves;
+            data.netCookSlotManualMode = this.netCookSlotManualMode;
+            data.netCookCookableOnly = this.netCookCookableOnly;
+            data.netCookSlotPrefs = this.SerializeNetCookSlotPrefs();
             data.netCookCaptureOwnOnly = this.netCookCaptureOwnOnly;
             data.netCookCaptureRadiusOnly = this.netCookCaptureRadiusOnly;
             data.netCookUseAllIngredients = this.netCookUseAllIngredients;
@@ -559,7 +568,10 @@ namespace HeartopiaMod
             this.farmWalkToNodeEnabled = data.farmWalkToNodeEnabled;
             this.farmWalkTrackCompareEnabled = data.farmWalkTrackCompareEnabled;
             this.farmWalkToAreaEnabled = data.farmWalkToAreaEnabled;
+            this.farmWalkRepathHoldNearCorner = data.farmWalkRepathHoldNearCorner;
+            this.farmWalkKeepFinalNode = data.farmWalkKeepFinalNode;
             this.farmWalkUseVehicleEnabled = data.farmWalkUseVehicleEnabled;
+            this.farmWalkVehicleFixEnabled = data.farmWalkVehicleFixEnabled;
             // A pre-existing Config.xml has no entry for this — a raw 0 would put the slider under
             // its own floor, so an unset value falls back to the default rather than being clamped
             // to 10 m and silently changing what "long haul" means.
@@ -622,7 +634,10 @@ namespace HeartopiaMod
             this.skipShowOffAnimations = data.skipShowOffAnimations;
             this.quietCongratsPopups = data.quietCongratsPopups;
             this.quietBpPayRewardPopup = data.quietBpPayRewardPopup;
+            this.quietPetPhotoResultPopup = data.quietPetPhotoResultPopup;
             this.emoteUnlockEnabled = data.emoteUnlockEnabled;
+            this.paintStyleUnlockEnabled = data.paintStyleUnlockEnabled;
+            this.furnitureDyePickerEnabled = data.furnitureDyePickerEnabled;
             this.friendInteractUnlockEnabled = data.friendInteractUnlockEnabled;
             this.foragingAnimEnabled = data.foragingAnimEnabled;
             this.skipCraftDyeAnimations = data.skipCraftDyeAnimations;
@@ -748,6 +763,9 @@ namespace HeartopiaMod
             this.netCookMiniGameOnly = data.netCookMiniGameOnly;
             this.netCookMoveIngredients = data.netCookMoveIngredients;
             this.netCookRememberStoves = data.netCookRememberStoves;
+            this.netCookSlotManualMode = data.netCookSlotManualMode;
+            this.netCookCookableOnly = data.netCookCookableOnly;
+            this.DeserializeNetCookSlotPrefs(data.netCookSlotPrefs);
             this.netCookCaptureOwnOnly = data.netCookCaptureOwnOnly;
             this.netCookCaptureRadiusOnly = data.netCookCaptureRadiusOnly;
             this.netCookUseAllIngredients = data.netCookUseAllIngredients;
@@ -1050,6 +1068,7 @@ namespace HeartopiaMod
                         else if (line.Contains("skipShowOffAnimations")) this.skipShowOffAnimations = GetJsonInt(line, "\"skipShowOffAnimations\":") != 0;
                         else if (line.Contains("quietCongratsPopups")) this.quietCongratsPopups = GetJsonInt(line, "\"quietCongratsPopups\":") != 0;
                         else if (line.Contains("quietBpPayRewardPopup")) this.quietBpPayRewardPopup = GetJsonInt(line, "\"quietBpPayRewardPopup\":") != 0;
+                        else if (line.Contains("quietPetPhotoResultPopup")) this.quietPetPhotoResultPopup = GetJsonInt(line, "\"quietPetPhotoResultPopup\":") != 0;
                         else if (line.Contains("skipCraftDyeAnimations")) this.skipCraftDyeAnimations = GetJsonInt(line, "\"skipCraftDyeAnimations\":") != 0;
                         else if (line.Contains("autoLearnRecipes")) this.autoLearnRecipes = GetJsonInt(line, "\"autoLearnRecipes\":") != 0;
                         else if (line.Contains("autoLikeOwnHome")) this.autoLikeOwnHome = GetJsonInt(line, "\"autoLikeOwnHome\":") != 0;

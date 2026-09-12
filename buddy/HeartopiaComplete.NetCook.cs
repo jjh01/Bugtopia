@@ -560,18 +560,31 @@ namespace HeartopiaMod
         {
             this.netCookRecipeEntries.Clear();
             this.netCookVisibleRecipeEntries.Clear();
+            this.ClearNetCookRecentRecipeIds();
             this.netCookRecipeCookerTypes.Clear();
             this.netCookRecipeRequirementsCache.Clear();
             this.netCookRecipeCacheCookerStaticId = 0;
+            this.netCookRecipeCacheCookerType = 0;
             this.netCookRecipeCacheFailureCookerStaticId = 0;
             this.nextNetCookRecipeCacheRetryAt = 0f;
             this.nextNetCookMaxRefreshAt = 0f;
+        }
+
+        private bool IsNetCookRecipeCacheTypeUsable()
+        {
+            if (this.netCookCookerType <= 0)
+            {
+                return true;
+            }
+
+            return this.netCookRecipeCacheCookerType == this.netCookCookerType;
         }
 
         private bool HasFreshNetCookRecipeCache()
         {
             return this.netCookRecipeEntries.Count > 0
                 && this.netCookRecipeCacheCookerStaticId == this.netCookCookerStaticId
+                && this.IsNetCookRecipeCacheTypeUsable()
                 && this.netCookRecipeCacheFailureCookerStaticId != this.netCookCookerStaticId;
         }
 
@@ -657,14 +670,18 @@ namespace HeartopiaMod
 
                 if (target.Phase == 0)
                 {
-                    if (this.IsNetCookCookQuantityCommitFull())
+                    if (this.IsNetCookCookQuantityBudgetSpent())
                     {
-                        if (!this.netCookDrainAfterIngredientsRunOut)
+                        // Confirmed dishes are what end the run; a prepare still in flight only stops
+                        // us handing out more. If the server rejects it the slot comes back and this
+                        // stove gets its turn on a later pass.
+                        if (this.IsNetCookCookQuantityCommitFull() && !this.netCookDrainAfterIngredientsRunOut)
                         {
                             this.BeginNetCookDrain(this.FormatNetCookQuantityDrainReason());
                         }
 
-                        if (this.TryGetNetCookTargetCookingStatus(target, out int limitCookingStatus, out _, out _, out _)
+                        if (this.IsNetCookCookQuantityCommitFull()
+                            && this.TryGetNetCookTargetCookingStatus(target, out int limitCookingStatus, out _, out _, out _)
                             && limitCookingStatus == 0
                             && this.IsNetCookBurnerEntityAlive(target.CookerNetId))
                         {
@@ -732,6 +749,7 @@ namespace HeartopiaMod
                         target.LastCookCommandAt = now;
                         target.TrustedCollected = false; // new dish in progress — clear the stale collect flag
                         target.PrepareConfirmed = false; // committed counts on server confirmation, not send
+                        target.PrepareInFlight = true;   // ...but the portion is spoken for from now on
                         target.NextActionAt = now + NetCookPhaseAdvanceDelaySeconds;
                         readyTargets++;
                     }
@@ -815,6 +833,7 @@ namespace HeartopiaMod
                             if (!target.PrepareConfirmed && target.Phase >= 1 && now - target.LastCookCommandAt < 20f)
                             {
                                 target.PrepareConfirmed = true;
+                                target.PrepareInFlight = false; // confirmed — it counts as committed now
                                 this.RecordNetCookPrepareCommitted();
                             }
 
@@ -1192,6 +1211,35 @@ namespace HeartopiaMod
                 && this.netCookCommittedDishCount >= this.netCookCookQuantity;
         }
 
+        // Prepares we have sent and the server has not answered yet. They are not committed — the ACK
+        // is what commits — but they are already spoken for, and pretending otherwise is what let a
+        // batch overrun the limit: with one dish requested, four prepares went out before the first
+        // confirmation arrived, because every status poll in between still read Idle.
+        private int CountNetCookInFlightPrepares()
+        {
+            int inFlight = 0;
+            for (int i = 0; i < this.netCookTargets.Count; i++)
+            {
+                NetCookTargetContext target = this.netCookTargets[i];
+                if (target != null && target.PrepareInFlight && !target.PrepareConfirmed)
+                {
+                    inFlight++;
+                }
+            }
+
+            return inFlight;
+        }
+
+        // The gate for issuing NEW prepares: every requested portion is either confirmed or in flight.
+        // Deliberately separate from IsNetCookCookQuantityCommitFull, which still drives the drain: a
+        // rejected prepare releases its slot and the loop may prepare again, so the run must not start
+        // draining until the dishes are really confirmed.
+        private bool IsNetCookCookQuantityBudgetSpent()
+        {
+            return this.HasNetCookCookQuantityLimit()
+                && this.netCookCommittedDishCount + this.CountNetCookInFlightPrepares() >= this.netCookCookQuantity;
+        }
+
         private bool IsNetCookTargetOccupiedWithDish(NetCookTargetContext target)
         {
             if (target == null)
@@ -1504,6 +1552,8 @@ namespace HeartopiaMod
         private void ResetNetCookTargetForNextDish(NetCookTargetContext target, float now)
         {
             target.Phase = 0;
+            target.PrepareInFlight = false;
+            target.PrepareConfirmed = false;
             target.ContinuePulses = 0;
             target.LastStatus = -1;
             target.LastStatusActionAt = -999f;
@@ -1635,6 +1685,8 @@ namespace HeartopiaMod
                 if (this.TryInvokeNetCookInteract())
                 {
                     target.Phase = 3;
+                    target.ReliefSentAt = now; // the drain relieves too — without this the outcome line
+                                               // reported "relief NEVER sent" on dishes it had just saved
                     target.LastStatusActionAt = now;
                     target.SentCount++;
                     this.netCookSentCount++;
@@ -2307,6 +2359,7 @@ namespace HeartopiaMod
 
                 target.Phase = 0;
                 target.LastStatus = -1;
+                target.PrepareInFlight = false; // the server said no — give the portion back to the budget
                 target.NextActionAt = now + 1.2f;
                 this.NetCookDiagLog("prepare REJECTED (OnPrepareFail) — fast retry stove=" + target.CookerNetId
                     + " lo=" + target.LevelObjectNetId, force: true);
@@ -5181,7 +5234,9 @@ namespace HeartopiaMod
                 return true;
             }
 
-            if (this.netCookRecipeEntries.Count > 0 && this.netCookRecipeCacheCookerStaticId == this.netCookCookerStaticId)
+            if (this.netCookRecipeEntries.Count > 0
+                && this.netCookRecipeCacheCookerStaticId == this.netCookCookerStaticId
+                && this.IsNetCookRecipeCacheTypeUsable())
             {
                 return true;
             }
@@ -5200,6 +5255,9 @@ namespace HeartopiaMod
 
                 if (this.TryBuildNetCookRecipeCacheFromCookingSystemAllRecipesAuraMono())
                 {
+                    // Recents ride along with the full list: both are keyed on the same
+                    // cookerStaticId, so refreshing them apart would let the groups disagree.
+                    this.TryRefreshNetCookRecentRecipeIdsAuraMono();
                     this.ResetNetCookRecipeCacheRetry();
                     return this.netCookRecipeEntries.Count > 0;
                 }
@@ -5364,6 +5422,7 @@ namespace HeartopiaMod
                 }
 
                 this.netCookRecipeCacheCookerStaticId = this.netCookCookerStaticId;
+                this.netCookRecipeCacheCookerType = this.netCookCookerType;
                 if (this.netCookRecipeEntries.Count <= 0)
                 {
                     this.NetCookLog("CookingSystem AuraMono GetAllRecipes produced no usable recipes.");
@@ -5376,6 +5435,125 @@ namespace HeartopiaMod
             catch (Exception ex)
             {
                 this.NetCookLog("CookingSystem AuraMono recipe cache exception: " + ex.Message);
+                return false;
+            }
+        }
+
+        // The game already keeps a recently-cooked list and already filters it to one cooker type:
+        // CookingSystem.GetRecentRecipes(cookerStaticId) walks ICookingClientService's
+        // CookingRecentComponent.RecentRecipe and drops entries whose cookerType does not match.
+        // Same shape as GetAllRecipes above (arity 1, List<CookingRecipe>), so this reads the ids
+        // through the same enumeration and member-probe path.
+        //
+        // Failure here is never fatal: the dropdown simply shows no RECENT group. A missing method
+        // on a future build must not take the recipe list down with it.
+        private void ClearNetCookRecentRecipeIds()
+        {
+            this.netCookRecentRecipeIds.Clear();
+            this.netCookRecentRecipeRank.Clear();
+        }
+
+        // -1 for a dish that is not in the recent list; otherwise its position in it.
+        private int GetNetCookRecentRecipeRank(int recipeId)
+        {
+            return this.netCookRecentRecipeRank.TryGetValue(recipeId, out int rank) ? rank : -1;
+        }
+
+        private unsafe bool TryRefreshNetCookRecentRecipeIdsAuraMono()
+        {
+            this.ClearNetCookRecentRecipeIds();
+
+            try
+            {
+                if (this.netCookCookerStaticId <= 0)
+                {
+                    return false;
+                }
+
+                if (!this.TryResolveAuraMonoModule("XDTGameSystem.GameplaySystem.Cooking.CookingSystem", out IntPtr cookingSystemObj)
+                    || cookingSystemObj == IntPtr.Zero
+                    || auraMonoObjectGetClass == null
+                    || auraMonoRuntimeInvoke == null)
+                {
+                    return false;
+                }
+
+                IntPtr cookingSystemClass = auraMonoObjectGetClass(cookingSystemObj);
+                if (cookingSystemClass == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                IntPtr getRecentMethod = this.FindAuraMonoMethodOnHierarchy(cookingSystemClass, "GetRecentRecipes", 1);
+                if (getRecentMethod == IntPtr.Zero)
+                {
+                    this.NetCookLog("CookingSystem AuraMono GetRecentRecipes unavailable — recent group hidden.");
+                    return false;
+                }
+
+                IntPtr exc = IntPtr.Zero;
+                int cookerStaticId = this.netCookCookerStaticId;
+                IntPtr* args = stackalloc IntPtr[1];
+                args[0] = (IntPtr)(&cookerStaticId);
+                IntPtr recentListObj = auraMonoRuntimeInvoke(getRecentMethod, cookingSystemObj, (IntPtr)args, ref exc);
+                if (exc != IntPtr.Zero || recentListObj == IntPtr.Zero)
+                {
+                    // A player who has never cooked on this cooker type gets a null list, not an
+                    // error — that is an empty recent group, not a failure worth logging loudly.
+                    return false;
+                }
+
+                List<IntPtr> recentItems = new List<IntPtr>(32);
+                List<uint> recentPins = new List<uint>();
+                try
+                {
+                    if (!this.TryEnumerateAuraMonoCollectionItems(recentListObj, recentItems, recentPins) || recentItems.Count <= 0)
+                    {
+                        return false;
+                    }
+
+                    for (int i = 0; i < recentItems.Count; i++)
+                    {
+                        IntPtr recipeObj = recentItems[i];
+                        if (recipeObj == IntPtr.Zero)
+                        {
+                            continue;
+                        }
+
+                        int recipeId = 0;
+                        if (!this.TryGetMonoInt32Member(recipeObj, "staticId", out recipeId)
+                            && !this.TryGetMonoInt32Member(recipeObj, "StaticId", out recipeId)
+                            && !this.TryGetMonoIntMember(recipeObj, "staticId", out recipeId)
+                            && !this.TryGetMonoIntMember(recipeObj, "StaticId", out recipeId))
+                        {
+                            continue;
+                        }
+
+                        // The game can list the same dish twice; the dropdown must not.
+                        if (recipeId > 0 && !this.netCookRecentRecipeIds.Contains(recipeId))
+                        {
+                            this.netCookRecentRecipeIds.Add(recipeId);
+                        }
+                    }
+                }
+                finally
+                {
+                    FreeAuraMonoPins(recentPins);
+                }
+
+                for (int i = 0; i < this.netCookRecentRecipeIds.Count; i++)
+                {
+                    this.netCookRecentRecipeRank[this.netCookRecentRecipeIds[i]] = i;
+                }
+
+                this.NetCookLog("Recent recipes: " + this.netCookRecentRecipeIds.Count
+                    + " for cookerStaticId=" + this.netCookCookerStaticId + ".");
+                return this.netCookRecentRecipeIds.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                this.ClearNetCookRecentRecipeIds();
+                this.NetCookLog("CookingSystem AuraMono GetRecentRecipes exception: " + ex.Message);
                 return false;
             }
         }
@@ -5553,10 +5731,19 @@ namespace HeartopiaMod
             string search = (this.netCookRecipeSearchText ?? string.Empty).Trim();
             bool filterBySearch = !string.IsNullOrWhiteSpace(search);
 
+            // netCookRecipeCookerTypes is written wholesale with the cookware type the cache was
+            // built at, so once that type is stale EVERY tag is wrong and the filter below throws the
+            // whole list away. EnsureNetCookRecipeCache would rebuild — except it is frozen while a
+            // run is active (the early return up there), and ProcessNetCookTargets repoints the
+            // context at each target in turn, so a working set that mixes registry-synthesized
+            // stoves (cookware type 0) with scanned ones lands right on it: empty dropdown mid-run.
+            // Drop the filter instead; at a stale type it carries no information anyway.
+            bool filterByCookerType = this.netCookCookerType > 0 && this.IsNetCookRecipeCacheTypeUsable();
+
             for (int i = 0; i < this.netCookRecipeEntries.Count; i++)
             {
                 KeyValuePair<int, string> recipeEntry = this.netCookRecipeEntries[i];
-                if (this.netCookCookerType > 0)
+                if (filterByCookerType)
                 {
                     if (!this.netCookRecipeCookerTypes.TryGetValue(recipeEntry.Key, out int recipeCookerType) || recipeCookerType != this.netCookCookerType)
                     {
@@ -5573,8 +5760,37 @@ namespace HeartopiaMod
                 this.netCookVisibleRecipeEntries.Add(recipeEntry);
             }
 
+            // NO cookable filter here. This list is not just what the dropdown paints: the capture
+            // path and the Stove Type switch both search it to decide which recipe stays selected
+            // (NetCook.cs ~3701, NetCookStoveType.cs ~1149). Dropping entries out of it would let a
+            // stock shortage silently overwrite the recipe the user picked for that menu. The
+            // "Only What I Can Cook" filter is applied by the UI, over this list.
+
             this.netCookVisibleRecipeEntries.Sort((a, b) =>
             {
+                // Recently cooked dishes float to the top, in the order the GAME lists them
+                // (newest first) rather than alphabetically — that ordering is the whole point of
+                // the group. Everything else keeps the original name sort below it.
+                //
+                // Rank comes from a dictionary, not IndexOf: this comparator runs O(n log n) times
+                // per rebuild and the rebuild happens EVERY frame the dropdown is open.
+                int rankA = this.GetNetCookRecentRecipeRank(a.Key);
+                int rankB = this.GetNetCookRecentRecipeRank(b.Key);
+                if (rankA != rankB)
+                {
+                    if (rankA < 0)
+                    {
+                        return 1;
+                    }
+
+                    if (rankB < 0)
+                    {
+                        return -1;
+                    }
+
+                    return rankA.CompareTo(rankB);
+                }
+
                 string nameA = a.Value ?? string.Empty;
                 string nameB = b.Value ?? string.Empty;
                 int byName = string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase);
@@ -9819,8 +10035,15 @@ namespace HeartopiaMod
             // Universal Ingredient, which is allocated LAST, only for the units real ingredients could
             // not cover. specificItemIds stays untouched: it is also the category-exclusion set, and
             // 46999 must never be counted toward a "any <category>" demand (its foodMaterial is [99]).
+            // A slot pinned to the Universal Ingredient is an explicit instruction, so it pulls the
+            // item out of the warehouse on its own — the top-up toggle governs automatic
+            // substitution, not what the player asked for by hand.
+            Dictionary<int, int> pinnedPerDish = new Dictionary<int, int>();
+            this.CollectNetCookPinnedStaticIdCounts(this.netCookRecipeId, pinnedPerDish);
+            pinnedPerDish.TryGetValue(NetCookUniversalIngredientStaticId, out int pinnedUniversalPerDish);
+
             HashSet<int> collectStaticIds = specificItemIds;
-            if (this.netCookUseUniversalIngredient)
+            if (this.netCookUseUniversalIngredient || pinnedUniversalPerDish > 0)
             {
                 collectStaticIds = new HashSet<int>(specificItemIds);
                 collectStaticIds.Add(NetCookUniversalIngredientStaticId);
@@ -9890,7 +10113,16 @@ namespace HeartopiaMod
                 // Pool ALL matching stacks and allocate once, so the low-star-first ordering holds
                 // ACROSS the category's different item ids (per-staticId allocation would only sort
                 // stars within each item and pull whole item groups in dictionary order).
+                //
+                // Pinned kinds go FIRST, and only up to what the pins ask for. A category slot
+                // pinned to an item accepts any matching item as far as this allocator is
+                // concerned, so the cheap-first default would happily bring something else and
+                // leave the preference unsatisfiable at fill time. Capping the head at
+                // pinnedSlots * batches keeps it a preference and not a reason to drain the
+                // warehouse of one ingredient.
+                List<KeyValuePair<uint, int>> preferredPool = new List<KeyValuePair<uint, int>>();
                 List<KeyValuePair<uint, int>> categoryPool = new List<KeyValuePair<uint, int>>();
+                int preferredUnits = 0;
                 foreach (KeyValuePair<int, List<KeyValuePair<uint, int>>> kvp in stacksByStaticId)
                 {
                     if (specificItemIds.Contains(kvp.Key) || !this.NetCookItemMatchesCategory(kvp.Key, demand.Key))
@@ -9898,20 +10130,46 @@ namespace HeartopiaMod
                         continue;
                     }
 
-                    categoryPool.AddRange(kvp.Value);
+                    if (pinnedPerDish.TryGetValue(kvp.Key, out int pinnedSlots) && pinnedSlots > 0)
+                    {
+                        preferredPool.AddRange(kvp.Value);
+                        preferredUnits += batches * pinnedSlots;
+                    }
+                    else
+                    {
+                        categoryPool.AddRange(kvp.Value);
+                    }
+                }
+
+                if (preferredPool.Count > 0 && preferredUnits > 0)
+                {
+                    int preferredRemaining = Math.Min(remaining, preferredUnits);
+                    int beforePreferred = preferredRemaining;
+                    AllocateNetCookMoveFromStacks(preferredPool, remainingByNetId, moveMap, starByNetId, ref preferredRemaining);
+                    remaining -= beforePreferred - preferredRemaining;
+
+                    // Whatever the pinned kinds could not cover falls back to the general pool.
+                    categoryPool.AddRange(preferredPool);
                 }
 
                 AllocateNetCookMoveFromStacks(categoryPool, remainingByNetId, moveMap, starByNetId, ref remaining);
                 unmetUnits += remaining;
             }
 
-            // Universal Ingredient top-up, LAST on purpose: whatever real ingredients could reach the
-            // bag has already been allocated above, so this only moves what is still missing, and only
+            // Universal Ingredient, LAST on purpose: whatever real ingredients could reach the bag
+            // has already been allocated above, so this only moves what is still missing, and only
             // beyond the universal units the bag already holds.
-            if (this.netCookUseUniversalIngredient && unmetUnits > 0)
+            //
+            // Two demands share this one allocation. The top-up's (unmet units, only while its
+            // toggle is on) and the pinned slots' (always — a pin is a request, and unlike the
+            // top-up it is not covered by the loops above: 46999 matches no category and is nobody's
+            // specific requirement, so nothing else would ever move it).
+            int universalUnits = (this.netCookUseUniversalIngredient ? unmetUnits : 0)
+                + batches * pinnedUniversalPerDish;
+            if (universalUnits > 0)
             {
                 bagTotalsByStaticId.TryGetValue(NetCookUniversalIngredientStaticId, out int universalInBag);
-                int universalRemaining = Math.Max(0, unmetUnits - universalInBag);
+                int universalRemaining = Math.Max(0, universalUnits - universalInBag);
                 if (universalRemaining > 0
                     && stacksByStaticId.TryGetValue(NetCookUniversalIngredientStaticId, out List<KeyValuePair<uint, int>> universalStacks))
                 {
@@ -10298,6 +10556,14 @@ namespace HeartopiaMod
                         continue;
                     }
 
+                    // Manual ingredient choice runs BEFORE the universal top-up and after the
+                    // game's own AutoFill: real preferred stacks first, universal only for what
+                    // is still missing. A preference that cannot be met leaves the slot alone.
+                    if (this.netCookSlotManualMode)
+                    {
+                        this.TryApplyNetCookSlotPreference(cookingSystemObj, cookingSystemClass, slotObj, i, this.netCookRecipeId);
+                    }
+
                     bool hasFilledFlag = this.TryGetMonoBoolMember(slotObj, "filled", out bool filled);
                     if (hasFilledFlag && !filled && this.IsNetCookUniversalIngredientFillAllowed())
                     {
@@ -10510,6 +10776,10 @@ namespace HeartopiaMod
             // (WakeNetCookTargetsForUrgentStatus). It is the only signal that reaches a stove the mod
             // never started a dish on, and it lets the action sort put a burning stove ahead of the
             // idle ones instead of behind them.
+            // True between "our prepare was sent" and "the server answered" (confirmed via status
+            // Preparing/Cooking, or rejected via OnPrepareFail). Such a dish is not committed yet but
+            // it still occupies one of the requested portions, otherwise a batch outruns the limit.
+            public bool PrepareInFlight;
             public int UrgentStatus;
             public float UrgentStatusAt = -999f;
             // Attendance trail for the dish-outcome log line: was the danger window ever seen, and was

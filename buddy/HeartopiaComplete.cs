@@ -760,10 +760,12 @@ namespace HeartopiaMod
             this.ProcessBubbleFeatureOnUpdate();
             this.ProcessBubbleSpawnAtPlayerOnUpdate();
             this.ProcessAutoBubbleCollectOnUpdate();
+            this.ProcessPetPoopOnUpdate();
             Breadcrumbs.Phase("ou.animskip");
             this.ProcessShowOffBypassOnUpdate();
             this.ProcessQuietPopupsOnUpdate();
             this.ProcessEmoteUnlockOnUpdate();
+            this.ProcessPaintStyleUnlockOnUpdate();
             this.ProcessForagingAnimOnUpdate();
             this.ProcessCraftAnimationSkipOnUpdate();
             this.ProcessTutorialBlockOnUpdate();
@@ -814,6 +816,7 @@ namespace HeartopiaMod
             // (that early-returns until the shell is first built; this panel must auto-show with
             // the shell never opened).
             this.ProcessUguiBuildingMovePanelOnUpdate();
+            this.ProcessUguiDyePickerOnUpdate();
             // Floating UGUI Quest Assistant window — deliberately NOT inside ProcessUguiShellOnUpdate
             // (that early-returns until the shell is first built; this window must work with the
             // shell never opened). Gated on questAssistantWindowVisible ALONE — its IMGUI twin has
@@ -2989,6 +2992,7 @@ namespace HeartopiaMod
             this.markerMetadataById.Clear();
             this.trackedObjectMarkers.Clear();
             this.trackedBubbleMarkers.Clear();
+            this.trackedPetPoopMarkers.Clear();
             this.ClearHideAndSeekMorphMarkers();
             this.bubbleRadarTrackedPositions.Clear();
             this.bubbleRadarSnapshotPositions.Clear();
@@ -4486,8 +4490,21 @@ namespace HeartopiaMod
         private string netCookRecipeSearchText = "";
         private readonly List<KeyValuePair<int, string>> netCookRecipeEntries = new List<KeyValuePair<int, string>>(256);
         private readonly List<KeyValuePair<int, string>> netCookVisibleRecipeEntries = new List<KeyValuePair<int, string>>(256);
+        // Recipe ids the GAME lists as recently cooked, newest first, already filtered to the
+        // captured cooker's type by CookingSystem.GetRecentRecipes.
+        private readonly List<int> netCookRecentRecipeIds = new List<int>(16);
+        // recipeId -> position in the list above, so the dropdown sort does not run IndexOf
+        // per comparison on a list it rebuilds every frame.
+        private readonly Dictionary<int, int> netCookRecentRecipeRank = new Dictionary<int, int>(16);
+        // Off keeps the shipped behaviour: the game's AutoFill decides what goes in each slot.
+        private bool netCookSlotManualMode = false;
+        // Hide recipes the current stock cannot cover.
+        private bool netCookCookableOnly = false;
+        // -1 = the grid shows recipes. >= 0 = it shows the candidate items for that slot.
+        private int netCookSlotPickerIndex = -1;
         private readonly Dictionary<int, int> netCookRecipeCookerTypes = new Dictionary<int, int>();
         private int netCookRecipeCacheCookerStaticId = 0;
+        private int netCookRecipeCacheCookerType = 0;
         private int netCookRecipeCacheFailureCookerStaticId = 0;
         private float nextNetCookRecipeCacheRetryAt = 0f;
         private readonly List<uint> netCookMaterialNetIds = new List<uint>(16);

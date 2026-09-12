@@ -62,7 +62,7 @@ Tab index **1** is unused in the main tab bar (historical gap).
 | Homeland Farm | Crop-box farming: auto farm, water/weed/harvest/sow/fertilize in radius, seed/fertilizer selection |
 | Pictures | Decrypt / re-encrypt `ScreenCapture` cache (Photo, Draw, …). Draw files get a color preview via game `ColorLut`; index maps kept in `Draw/.index/` |
 | Extras | Ice skating: network "Perfect Ice Skating" sequences (`IceSkatingSequenceFeature`) + real-time **Auto Ice Skating** bot (`AutoIceSkatingFeature`) |
-| Extra | Open Craft panel; **Analog Move** gamepad-stick → character bridge (`MovementInputFeature`); **Carpet Stamp** — scan party carpets + send a single step-on/step-off (`CarpetStampFeature`); **Sanrio Gacha Finder** — locate SANRIO event gacha machines (3 Star Town scene machines + player-placed ones via UGC actor scan), auto map pins + teleport (`SanrioGachaFinderFeature`) |
+| Extra | Open Craft panel; **Clear Missed Calls** — empty the watch's missed-call list (`ClearMissedCallsFeature`); **Analog Move** gamepad-stick → character bridge (`MovementInputFeature`); **Carpet Stamp** — scan party carpets + send a single step-on/step-off (`CarpetStampFeature`); **Sanrio Gacha Finder** — locate SANRIO event gacha machines (3 Star Town scene machines + player-placed ones via UGC actor scan), auto map pins + teleport (`SanrioGachaFinderFeature`) |
 | Sand Sculpture | Fully-automatic beach sand-sculpting: auto-place base + auto-sculpt correct model + auto-collect (`SandSculptureFeature`) |
 
 Inventory scan / sort / filter rules for these (and Auto Sell, Bag transfer, pets): **[BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md)**.
@@ -412,6 +412,73 @@ Implementation is a three-tier `BuildModule` resolution (managed → AuraMono `M
 - Client-side building placement overlap bypass.
 - Applies additional Harmony patch on demand (`EnsureBypassPatched`).
 - Credits third-party contributor in UI.
+
+### Building — Unlock all wall / floor paint styles (Self → Building sub-tab)
+
+- Lists every `Housetexture` row in the build paint panel, not just the ones the account owns.
+  137 rows total (type 1 = wall 64, 2 = floor 50, 3 = ceiling 19, plus 4 with type 0); only **43**
+  carry no unlock condition. The other 94 carry `PlayerHomeLevel >= 999` (93) or
+  `PlayerHomeLevel <= -10` (1) — deliberately unsatisfiable, i.e. reachable only through a
+  server-synced unlock entity.
+- `BuildPaintPanel` has no lock check of its own: the single filter in the whole path is
+  `HouseTextureClientService.GetAllUnlockTexture()`, which admits a row when
+  `HouseUnlockClientService.IsHouseBuildUnlock(Texture, id)` says so, or when the row's
+  `unlockConditionExpression` evaluates true locally.
+- **Two Mono `NativeDetour`s**, no Harmony / IL2CPP `.text` patch:
+  - `HouseUnlockClientService.IsHouseBuildUnlock(type, id)` → true **for `Texture` only**; every
+    other type falls through to the trampoline. `HouseBuildItemUnlockType` is
+    `{ None, Material, Texture }` and the same method also gates the build-shop catalogue
+    (`HouseMaterialClientService.MaterialIsUnlock`) and house modules — answering true for those
+    would advertise furniture the server refuses at save time anyway with
+    `ErrorCode.ShopConditionNotEnough` (→ loc 92889, *"Shop unlock conditions not met."*).
+  - `HouseTextureClientService.TextureIsUnlock(id)` → true. `GetAllUnlockTexture` does **not**
+    call it (the logic is duplicated inline), but `CraftBank.CheckTextureIsLock` →
+    `BuildModule.CheckCanPutModule` does: without this second hook a blueprint/module carrying a
+    locked texture would still be refused.
+- Both delegates return `byte`, never `bool` — Mono hands a 1-byte result back in AL and the
+  default `Boolean` marshalling would read all four bytes of EAX off the trampoline.
+- The detours are installed once and **never undone** (tearing a live detour down across a world
+  change corrupts); the toggle only flips a static bool the hook bodies read, so switching off
+  restores stock behaviour without touching native code from a UI callback. Reopen the paint panel
+  after toggling — the list is rebuilt on `RefreshChosen()`.
+- **Unverified:** whether the server keeps a style it never granted.
+  `XDT.Scene.Shared.Modules.Player.ErrorCode` has ~40 build codes and none is about a texture or
+  paint material (items have `ShopConditionNotEnough`) — suggestive, but an argument from silence.
+  Treat surviving a relog as the only proof.
+- Toggle persisted in config (`paintStyleUnlockEnabled`). Implementation:
+  `PaintStyleUnlockFeature.cs`; UI row in `HeartopiaComplete.UguiBuildingContent.cs`.
+
+### Building — Free colour picker for furniture (Self → Building sub-tab)
+
+- A floating window with a graphics-app picker (SV square + hue strip + hex field + the item's own
+  palette), shown automatically while a **dyeable** object is focused in build mode.
+- **Why it is possible at all:** the game's palette is a client-UI limit, not a data or server one.
+  `DyeColorData.color` is a raw packed int, the live renderer `DyeColorClientUtil.GetDyeColor` uses
+  it directly with no palette lookup, and `DyeColorCosts` keys on `(staticId, body)` — the PART, so
+  the price does not depend on the colour. Measured 2026-09-09 on Workbench 330001: a pure-magenta
+  `0xFF00FFFF` applied, saved, survived a level transition out of the build sandbox, and the server
+  **charged 2 units of Dye (41001), 11 → 9**. A rejected op would have hit
+  `RevertInvalidLocalOperations` + `CraftBank.RevertCurrency` instead.
+- The game itself ships an unreachable version of this: `DyeColorPanel_Auto` binds
+  `customDyeBar@go` (H/S/V sliders, three recent-colour slots, confirm/cancel) and the server syncs
+  `LatestUsedDayColorComponent` for the recent list — but the only code that reveals it hangs off a
+  list cell at `index == colors.Length` while the list is filled with `SetCount(colors.Length)`, and
+  nothing binds the sliders.
+- **Dyeable** = not structure (`HomelandSystem.CheckCanPaint` — EntityType wall/floor/quarterwall
+  take the paint-style flow) **and** at least one `ColorPart` with a non-empty `colors` array in
+  `DyeColorConfig.itemDyeColorConfigs[staticId]`. The Building page shows the verdict as a line
+  under the toggle, including the reason when the answer is no.
+- ⚠ Walls / floors / ceilings are deliberately refused: their colour lives in the bake as ONE BYTE
+  of palette index per location, re-resolved as `material.colorThemes[colorindex]` in
+  `BakeRenderingProcessorFloor`/`Wall`. An arbitrary RGB has nowhere to live there.
+- Implementation notes: the SV square is three stacked Images (hue fill + white saturation ramp +
+  black value ramp), so only a `img.color =` changes with the hue — no per-frame texture rebuild.
+  Pointer input is POLLED like the kit's window drag (no injected `IDragHandler`). The object
+  recolours live, throttled to 12.5 Hz with a guaranteed apply on release; the focus walk runs at
+  10 Hz and pauses entirely during a drag. Nothing is sent: the change rides the player's own build
+  confirm and the server prices it normally.
+- Toggle persisted in config (`furnitureDyePickerEnabled`). Implementation:
+  `FurnitureDyeFeature.cs` (model) + `HeartopiaComplete.UguiColorPicker.cs` (window).
 
 ### Chat Translate Unlock
 
@@ -813,6 +880,8 @@ Server-command style farming **without teleporting** to each node:
   - **Bushes** — `SendPickBushCommand`
   - **Trees** — `SendAttackTreeCommand`
   - **Stones** — `SendHitStoneCommand`
+  - **Dog poop** — while the aura runs, `PetPoopFeature.cs` picks up droppings within 2 m
+    (`ThrowableProtocolManager.Pickup`); details under Pet Care → Dog poop pickup.
 - Throttled scan (80 ms tick, 20 ms per-owner cooldown); merged target cap (32).
 - Toggle independent of teleport foraging; both can conflict — UI warns when radar/foraging preconditions fail.
 - **Foraging + Aura Farm node-hop wait:** when START FORAGING teleports to a radar node with Aura Farm on,
@@ -1248,6 +1317,40 @@ See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
 - **Auto Dog Train:** handles dog training QTE flow.
 - Independent toggles + hotkeys.
 
+**Dog poop pickup (`PetPoopFeature.cs`) — part of Aura Farm, no switch of its own**
+
+- Active whenever **Aura Farm** is running (Resource Gathering → Aura Farm): the aura already means
+  "collect everything in reach", so droppings ride along. Pickup radius is fixed at **2 m**: the
+  server only honours `Pickup` right next to the dropping (user-measured; a wider radius just burns
+  the send budget).
+- What a dropping is: Entity **7100 "Dog Poop"** (EntityType 44 `pickable`, ids 7100-7199,
+  prefab `p_dogpoop_dogpoop001`). A networked ECS entity with `PickableComponent`
+  (`XDT.Scene.Shared.Modules.Throwable`) that `ThrowableSyncSystem` turns into a DataCenter entity
+  (`DynamicComponentData{staticId}` + `PickableComponentData{enablePick}`) rendered through BRG —
+  so there is **no GameObject to find by name**; the feature scans the VIEW components instead:
+  `Entities.GetComponents<XDTLevelAndEntity.Gameplay.Component.Pickable.PickableComponent>` every
+  1 s (a handful of objects) and qualifies each NEW netId once through
+  `DynamicComponent.StaticId` (thrown dog toys, Throwable 7000, also carry `PickableComponentData`
+  and must not be picked up).
+- Pickup = the manual path minus the cast: `PickupShitCommand` (InteractId 22) →
+  `player.Cast(SwitchFurnitureArg type=20)` → `ThrowableProtocolManager.Pickup(netId)` →
+  `PickupNetworkCommand`. The feature invokes the static `Pickup(uint)` directly (AuraMono,
+  value-type arg by pointer), nearest dropping inside 2 m first, one send per 0.5 s, up to
+  8 sends per netId 3 s apart (no minimum age: the first sends are ignored by the server for
+  8-15 s, the dense retries land right after); a dropping that vanishes after a send counts as collected
+  (verified live 2026-09-11: 18/18 collected on the first send in one session).
+- `UITipEvent` 93683 (`PickupResult.BagNotEnough`) right after one of our sends pauses the
+  feature for 60 s; tip 266 = a dropping expired (`PetPoopDisappearNetworkEvent`).
+- Measured 2026-09-11: one send at 5.0 m went through, but in practice the server only honours
+  `Pickup` within ~2 m (hence the fixed radius); a fresh dropping is **ignored for the first
+  8-15 s** (sends at +0/+4/+8 s did nothing, +15 s collected) — covered by the 3 s retries; droppings appeared **every 5-15 min** with two pets on a walk, sometimes two
+  within a minute when both dogs go (the server checks every `DogConst.DefaultCheckCooldown` =
+  300 s, but not every check produces one). Unknown: whether another player's dog's poop is
+  pickable (`AllowedNetId`) — six refused sends and the netId is left alone, with a `[PetPoop]` log line.
+- No targeted event exists for "a pickable appeared" (`DataCreated<T>` is a nested generic,
+  `EntityCreateEvent` fires for everything) — hence the throttled scan.
+- Same scan feeds the **Radar → Misc → Dog Poop** category (below).
+
 **My Pets (per-pet Play / Wash)**
 
 - `Show My Pets` lists owned cats/dogs (PetFeed scan, `IsMine` only) with live energy (vitality) / food (fullness) / growth (chemistry) from `PetSystem.GetPetComponentData`; per-row message shows detailed session progress.
@@ -1266,6 +1369,11 @@ See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
 
 - Scans world for configured resource prefabs / markers.
 - Categories: mushrooms (incl. truffle), berries, stones, ores, trees (apple, mandarin, rare), fish shadows, meteors, misc event resources.
+- **Misc → Dog Poop** — pet droppings (Entity 7100). Not a prefab scan: markers come from the
+  `PickableComponent` view scan in `PetPoopFeature.cs` (see Pet Care → Dog poop pickup),
+  keyed by netId, named `PetPoopMarker_<netId>` so the radar's per-scan child sweep keeps them.
+  ESP label "Dog Poop" (code DP, brown), icon `ui_item_normal_p_dogpoop_dogpoop001`; on the game
+  map it is a pinned NormalItem (Furniture-route) marker with the same icon, big map included.
 - **Daily** group — **Oak-Oak** and **Flawless Fluorite**, the two daily-roaming advanced
   collectables (their own group: single objects that move every game day at 06:00, not a resource
   family). The server picks the spot and the client has no data that predicts it, so they are found
@@ -1599,6 +1707,47 @@ returns 0 under "Input System (New)". This bridge fixes that.
 
 Pipeline details: **[TECHNICAL.md § Analog movement bridge](./TECHNICAL.md)**; resolver facts in
 `memory/analog-move-injection.md`.
+
+---
+
+## New Features — Extra (Clear Missed Calls)
+
+**Tab:** New Features → Extra. **Source:** `ClearMissedCallsFeature.cs`. Research:
+[docs/plans/2026-09-07-clear-missed-calls.md](./plans/2026-09-07-clear-missed-calls.md).
+
+One button that empties the missed-call list on the player's watch — the backlog the Auto-Decline
+toggles leave behind. Everything lives in `DataModule<PhoneSystem>`
+(`XDTLevelAndEntity.Game.Module.Phone`), which holds two lists that the watch's phone app shows as
+one:
+
+- **`_recallData` — missed invites** (`EventCallData`, `PartyCallData`, `SelfRoomInviteCallData`,
+  `MultiBuildCallData`). Removed for real, one `PhoneSystem.RemoveInviteCall(entry)` per entry — the
+  call the game itself makes from `PhoneEndAction()`. It matches on the entry's own `IsSameCall`,
+  removes it and deactivates its red point through `RefreshReCallDataRedPoint`.
+- **`_taskCallData` — quest calls.** Only **muted**, never removed: `InitUnAnswerCall()` rebuilds
+  this list from `TaskSystem` on every `TaskUpdated` and whenever the phone app opens, and the rows
+  are live quest hints. `ReadUnAnswerCall(entry)` parks the id in `readUnAnswerCallIds` so later
+  rebuilds register the red point as inactive — exactly what `PhoneWatchAppWidget.RefreshRedPoint`
+  does when the app closes.
+
+A final `RefreshReCallDataRedPoint(null)` settles the tree. `WatchPanel.CheckItemDisplay` shows the
+phone tile only while `GetRecallCount() > 0`, so a successful clear makes the tile — and the red dot
+on the watch — disappear.
+
+- **Refuses while the watch is open** (`IUIManager.GetView(typeof(WatchPanel)) != null`):
+  `PhoneWatchAppWidget` keeps its own copy of the list, so clearing behind it would leave rows whose
+  "call back" button answers a dead invite. The guard fails open if the UI manager cannot be
+  resolved.
+- **Nothing is sent to the server.** Red points are a client-side node tree; the list itself is
+  never persisted. It is scoped to `GameLevel_Login`, the **root** of the level tree, so it survives
+  Town ↔ MicroHome ↔ Craft and a clear holds until logout.
+- **Never** `PhoneEndAction()` (that is the *accept* path — joins friend rooms, joins multi-builds,
+  and calls `ClientAcceptTask` / `ClientSubmitTask`), never an invoke of `PhoneCallData`'s abstract
+  members (`BadImageFormatException`), never `List<T>.Clear()` (generic inflation + stranded red
+  points).
+
+Zero detours, zero `.text` patches, zero event subscriptions, zero per-frame work. Every outcome —
+including every refusal — goes to the log as Tier 1.
 
 ---
 

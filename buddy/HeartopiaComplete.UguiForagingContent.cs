@@ -98,22 +98,20 @@ namespace HeartopiaMod
             public string TeleportDelayShown;
             public Slider TeleportDelaySlider;
             public Toggle StealthToggle;          // Stealth Foraging (always visible)
-            public GameObject StealthHintLabel;
             public Toggle WalkToggle;             // Walk to Nodes (always visible)
             public Toggle ForagingAnimToggle;     // Play animations when watched (walk mode only)
-            public GameObject WalkHintLabel;
             public Toggle WalkToAreaToggle;       // Walk to Zone Point (shown while Walk to Nodes is on)
-            public GameObject WalkToAreaHintLabel;
+            public Toggle WalkHoldRouteToggle;    // Hold Route Near Corners (same gate)
+            public Toggle WalkKeepFinalToggle;    // Keep Final Waypoint (same gate)
             public Toggle WalkVehicleToggle;      // Use Vehicle (shown while Walk to Nodes is on)
-            public GameObject WalkVehicleHintLabel;
             public GameObject WalkVehicleDistanceLabel;   // slider row, shown only while Use Vehicle is on
             public Slider WalkVehicleDistanceSlider;
             public string WalkVehicleDistanceShown;
             public GameObject WalkVehicleDismountLabel;   // second slider row, same gate
             public Slider WalkVehicleDismountSlider;
             public string WalkVehicleDismountShown;
+            public Toggle WalkVehicleFixToggle;           // Fix Vehicle Movement, same gate as the sliders
             public Toggle TrackCompareToggle;     // Compare Game Track (diagnostic)
-            public GameObject TrackCompareHintLabel;
             public Toggle StealthBlockToggle;     // Stealth Block (StealthBlockFeature.cs)
             public GameObject StealthBlockStatusLabel;
             public string StealthBlockStatusShown;
@@ -323,6 +321,13 @@ namespace HeartopiaMod
             }
 
             this.foragingAnimEnabled = value;
+            if (!value)
+            {
+                // The sea half is a HELD pose, not a one-shot: turning the option off mid-dwell has
+                // to take it down, or the character keeps scrubbing until the dwell ends.
+                this.StopForagingAnimSeaClean("option off");
+            }
+
             try { this.SaveKeybinds(false); } catch { }
         }
 
@@ -491,10 +496,6 @@ namespace HeartopiaMod
                 this.L("Stealth Foraging"), this.stealthForagingEnabled,
                 new System.Action<bool>(this.OnUguiForagingStealthToggled));
             Color stealthMuted = this.UguiKitMutedColor();
-            handle.StealthHintLabel = this.CreateUguiLabel(settings.transform, "StealthHint",
-                this.L("Dives under nodes; noclip + no OOB rescue"), 11f,
-                new Color(stealthMuted.r, stealthMuted.g, stealthMuted.b, 0.9f), false);
-            this.TrySetUguiLabelWrapped(handle.StealthHintLabel);
 
             // Walk to Nodes (FarmWalkFeature.cs) — mutually exclusive with Stealth Foraging above,
             // which the handlers enforce in both directions. The speed row below only appears while
@@ -506,10 +507,6 @@ namespace HeartopiaMod
             handle.WalkToggle = this.CreateUguiCheckbox(settings.transform, "WalkToggle",
                 this.L("Walk to Nodes"), this.farmWalkToNodeEnabled,
                 new System.Action<bool>(this.OnUguiForagingWalkToggled));
-            handle.WalkHintLabel = this.CreateUguiLabel(settings.transform, "WalkHint",
-                this.L("Walks the route instead of teleporting; forces 1x speed"), 11f,
-                new Color(stealthMuted.r, stealthMuted.g, stealthMuted.b, 0.9f), false);
-            this.TrySetUguiLabelWrapped(handle.WalkHintLabel);
 
             // Zone travel, two independent switches under Walk to Nodes. Kept separate on request:
             // walking between areas is useful on its own, and the vehicle is a second decision with
@@ -517,18 +514,16 @@ namespace HeartopiaMod
             handle.WalkToAreaToggle = this.CreateUguiCheckbox(settings.transform, "WalkToAreaToggle",
                 this.L("Walk to Zone Point"), this.farmWalkToAreaEnabled,
                 new System.Action<bool>(this.OnUguiForagingWalkToAreaToggled));
-            handle.WalkToAreaHintLabel = this.CreateUguiLabel(settings.transform, "WalkToAreaHint",
-                this.L("Travels to the next farm zone instead of teleporting there"), 11f,
-                new Color(stealthMuted.r, stealthMuted.g, stealthMuted.b, 0.9f), false);
-            this.TrySetUguiLabelWrapped(handle.WalkToAreaHintLabel);
+            handle.WalkHoldRouteToggle = this.CreateUguiCheckbox(settings.transform, "WalkHoldRouteToggle",
+                this.L("Hold Route Near Corners"), this.farmWalkRepathHoldNearCorner,
+                new System.Action<bool>(this.OnUguiForagingWalkHoldRouteToggled));
+            handle.WalkKeepFinalToggle = this.CreateUguiCheckbox(settings.transform, "WalkKeepFinalToggle",
+                this.L("Keep Final Waypoint"), this.farmWalkKeepFinalNode,
+                new System.Action<bool>(this.OnUguiForagingWalkKeepFinalToggled));
 
             handle.WalkVehicleToggle = this.CreateUguiCheckbox(settings.transform, "WalkVehicleToggle",
                 this.L("Use Vehicle"), this.farmWalkUseVehicleEnabled,
                 new System.Action<bool>(this.OnUguiForagingWalkVehicleToggled));
-            handle.WalkVehicleHintLabel = this.CreateUguiLabel(settings.transform, "WalkVehicleHint",
-                this.L("Summons the default vehicle for long hauls; never underwater"), 11f,
-                new Color(stealthMuted.r, stealthMuted.g, stealthMuted.b, 0.9f), false);
-            this.TrySetUguiLabelWrapped(handle.WalkVehicleHintLabel);
 
             handle.WalkVehicleDistanceShown = this.LF("Vehicle From: {0}m", (int)this.farmWalkVehicleMinDistance);
             handle.WalkVehicleDistanceLabel = this.CreateUguiBodyLabel(settings.transform,
@@ -546,14 +541,15 @@ namespace HeartopiaMod
                 this.farmWalkVehicleDismountDistance, true,
                 new System.Action<float>(this.OnUguiForagingWalkVehicleDismountChanged));
 
+            // Steering the walker can drive with (FarmWalkVehicleFeature.ApplyFarmWalkVehicleMovementFix).
+            handle.WalkVehicleFixToggle = this.CreateUguiCheckbox(settings.transform, "WalkVehicleFixToggle",
+                this.L("Fix Vehicle Movement"), this.farmWalkVehicleFixEnabled,
+                new System.Action<bool>(this.OnUguiForagingWalkVehicleFixToggled));
+
             // Route diagnostics (FarmWalkTrackCompareFeature.cs).
             handle.TrackCompareToggle = this.CreateUguiCheckbox(settings.transform, "TrackCompareToggle",
                 this.L("Compare Game Track"), this.farmWalkTrackCompareEnabled,
                 new System.Action<bool>(this.OnUguiForagingTrackCompareToggled));
-            handle.TrackCompareHintLabel = this.CreateUguiLabel(settings.transform, "TrackCompareHint",
-                this.L("Draws the mod's route in green and makes the game route to the same node; overrides your own track"), 11f,
-                new Color(stealthMuted.r, stealthMuted.g, stealthMuted.b, 0.9f), false);
-            this.TrySetUguiLabelWrapped(handle.TrackCompareHintLabel);
 
 
             // Stealth Block trio (StealthBlockFeature.cs / MapRevealBlockedFeature.cs). The status
@@ -667,30 +663,20 @@ namespace HeartopiaMod
             {
                 PlaceUguiTopLeft(handle.StealthToggle.gameObject, 14f, rowY, 250f, 24f);
             }
-            if (handle.StealthHintLabel != null)
-            {
-                PlaceUguiTopLeft(handle.StealthHintLabel, 270f, rowY, panelW - 282f, 28f);
-            }
 
             rowY += 34f;
             if (handle.WalkToggle != null)
             {
                 PlaceUguiTopLeft(handle.WalkToggle.gameObject, 14f, rowY, 250f, 24f);
             }
-            if (handle.WalkHintLabel != null)
-            {
-                PlaceUguiTopLeft(handle.WalkHintLabel, 270f, rowY, panelW - 282f, 28f);
-            }
 
             // Both zone-travel rows hang off Walk to Nodes: with it off they mean nothing, so they
             // are hidden rather than shown greyed — the panel is already dense.
             bool walkRows = this.farmWalkToNodeEnabled;
             SetUguiGoActive(handle.WalkToAreaToggle != null ? handle.WalkToAreaToggle.gameObject : null, walkRows);
-            SetUguiGoActive(handle.WalkToAreaHintLabel, walkRows);
+            SetUguiGoActive(handle.WalkHoldRouteToggle != null ? handle.WalkHoldRouteToggle.gameObject : null, walkRows);
+            SetUguiGoActive(handle.WalkKeepFinalToggle != null ? handle.WalkKeepFinalToggle.gameObject : null, walkRows);
             SetUguiGoActive(handle.WalkVehicleToggle != null ? handle.WalkVehicleToggle.gameObject : null, walkRows);
-            SetUguiGoActive(handle.WalkVehicleHintLabel, walkRows);
-
-            SetUguiGoActive(handle.ForagingAnimToggle != null ? handle.ForagingAnimToggle.gameObject : null, walkRows);
 
             // The distance slider needs BOTH: walking on, and the vehicle actually in use.
             bool vehicleRow = walkRows && this.farmWalkUseVehicleEnabled;
@@ -698,6 +684,7 @@ namespace HeartopiaMod
             SetUguiGoActive(handle.WalkVehicleDistanceSlider != null ? handle.WalkVehicleDistanceSlider.gameObject : null, vehicleRow);
             SetUguiGoActive(handle.WalkVehicleDismountLabel, vehicleRow);
             SetUguiGoActive(handle.WalkVehicleDismountSlider != null ? handle.WalkVehicleDismountSlider.gameObject : null, vehicleRow);
+            SetUguiGoActive(handle.WalkVehicleFixToggle != null ? handle.WalkVehicleFixToggle.gameObject : null, vehicleRow);
 
             if (walkRows)
             {
@@ -706,25 +693,23 @@ namespace HeartopiaMod
                 {
                     PlaceUguiTopLeft(handle.WalkToAreaToggle.gameObject, 30f, rowY, 250f, 24f);
                 }
-                if (handle.WalkToAreaHintLabel != null)
+
+                rowY += 34f;
+                if (handle.WalkHoldRouteToggle != null)
                 {
-                    PlaceUguiTopLeft(handle.WalkToAreaHintLabel, 286f, rowY, panelW - 298f, 28f);
+                    PlaceUguiTopLeft(handle.WalkHoldRouteToggle.gameObject, 30f, rowY, 250f, 24f);
                 }
 
                 rowY += 34f;
-                if (handle.ForagingAnimToggle != null)
+                if (handle.WalkKeepFinalToggle != null)
                 {
-                    PlaceUguiTopLeft(handle.ForagingAnimToggle.gameObject, 30f, rowY, 320f, 24f);
+                    PlaceUguiTopLeft(handle.WalkKeepFinalToggle.gameObject, 30f, rowY, 250f, 24f);
                 }
 
                 rowY += 34f;
                 if (handle.WalkVehicleToggle != null)
                 {
                     PlaceUguiTopLeft(handle.WalkVehicleToggle.gameObject, 30f, rowY, 250f, 24f);
-                }
-                if (handle.WalkVehicleHintLabel != null)
-                {
-                    PlaceUguiTopLeft(handle.WalkVehicleHintLabel, 286f, rowY, panelW - 298f, 28f);
                 }
 
                 if (vehicleRow)
@@ -748,17 +733,34 @@ namespace HeartopiaMod
                     {
                         PlaceUguiTopLeft(handle.WalkVehicleDismountSlider.gameObject, 224f, rowY + 1f, panelW - 252f, 20f);
                     }
+
+                    rowY += 30f;
+                    if (handle.WalkVehicleFixToggle != null)
+                    {
+                        PlaceUguiTopLeft(handle.WalkVehicleFixToggle.gameObject, 46f, rowY, 250f, 24f);
+                    }
                 }
             }
+
+            // Gathering animations cover BOTH halves of the feature now: the land swings (which do
+            // need Walk to Nodes) and the sea-clean pose (which does not, since underwater there is
+            // no walking to do). So the row sits outside the walk block and is always shown.
+            //
+            // Two lines tall: the caption does not fit one 14pt line at this panel width in any
+            // language, and a kit label with nowhere to wrap is trimmed with "…" instead.
+            rowY += 34f;
+            if (handle.ForagingAnimToggle != null)
+            {
+                PlaceUguiTopLeft(handle.ForagingAnimToggle.gameObject, 14f, rowY, panelW - 28f, 40f);
+                SetUguiCheckboxLabelHeight(handle.ForagingAnimToggle, 40f);
+            }
+
+            rowY += 16f; // this row is 16px taller than a normal one; keep the rows below spaced
 
             rowY += 34f;
             if (handle.TrackCompareToggle != null)
             {
                 PlaceUguiTopLeft(handle.TrackCompareToggle.gameObject, 14f, rowY, 250f, 24f);
-            }
-            if (handle.TrackCompareHintLabel != null)
-            {
-                PlaceUguiTopLeft(handle.TrackCompareHintLabel, 270f, rowY, panelW - 282f, 28f);
             }
 
             rowY += 34f;
@@ -876,11 +878,14 @@ namespace HeartopiaMod
                 this.SyncUguiToggleFromField(handle.WalkToggle, this.farmWalkToNodeEnabled);
                 this.SyncUguiToggleFromField(handle.ForagingAnimToggle, this.foragingAnimEnabled);
                 this.SyncUguiToggleFromField(handle.WalkToAreaToggle, this.farmWalkToAreaEnabled);
+                this.SyncUguiToggleFromField(handle.WalkHoldRouteToggle, this.farmWalkRepathHoldNearCorner);
+                this.SyncUguiToggleFromField(handle.WalkKeepFinalToggle, this.farmWalkKeepFinalNode);
                 this.SyncUguiToggleFromField(handle.WalkVehicleToggle, this.farmWalkUseVehicleEnabled);
                 this.SyncUguiSelfLabelText(handle.WalkVehicleDistanceLabel, ref handle.WalkVehicleDistanceShown,
                     this.LF("Vehicle From: {0}m", (int)this.farmWalkVehicleMinDistance));
                 this.SyncUguiSelfLabelText(handle.WalkVehicleDismountLabel, ref handle.WalkVehicleDismountShown,
                     this.LF("Get Out At: {0}m", (int)this.farmWalkVehicleDismountDistance));
+                this.SyncUguiToggleFromField(handle.WalkVehicleFixToggle, this.farmWalkVehicleFixEnabled);
                 this.SyncUguiToggleFromField(handle.TrackCompareToggle, this.farmWalkTrackCompareEnabled);
                 this.SyncUguiToggleFromField(handle.StealthBlockToggle, this.stealthBlockEnabled);
                 this.SyncUguiToggleFromField(handle.NotifyFriendsToggle, this.stealthBlockNotifyFriends);
@@ -1104,6 +1109,28 @@ namespace HeartopiaMod
             try { this.SaveKeybinds(false); } catch { }
         }
 
+        private void OnUguiForagingWalkKeepFinalToggled(bool value)
+        {
+            if (value == this.farmWalkKeepFinalNode)
+            {
+                return;
+            }
+
+            this.farmWalkKeepFinalNode = value;
+            try { this.SaveKeybinds(false); } catch { }
+        }
+
+        private void OnUguiForagingWalkHoldRouteToggled(bool value)
+        {
+            if (value == this.farmWalkRepathHoldNearCorner)
+            {
+                return;
+            }
+
+            this.farmWalkRepathHoldNearCorner = value;
+            try { this.SaveKeybinds(false); } catch { }
+        }
+
         private void OnUguiForagingWalkToAreaToggled(bool value)
         {
             if (value == this.farmWalkToAreaEnabled)
@@ -1116,6 +1143,27 @@ namespace HeartopiaMod
         }
 
         // Turning the vehicle on/off changes whether the distance row exists, hence the relayout.
+        private void OnUguiForagingWalkVehicleFixToggled(bool value)
+        {
+            if (value == this.farmWalkVehicleFixEnabled)
+            {
+                return;
+            }
+
+            this.farmWalkVehicleFixEnabled = value;
+            try { this.SaveKeybinds(false); } catch { }
+
+            // Takes effect on the seat we are in right now; the mount transition covers the rest.
+            if (value)
+            {
+                this.ApplyFarmWalkVehicleMovementFix("option switched on");
+            }
+            else
+            {
+                this.RestoreFarmWalkVehicleMovementFix("option switched off");
+            }
+        }
+
         private void OnUguiForagingWalkVehicleToggled(bool value)
         {
             if (value == this.farmWalkUseVehicleEnabled)

@@ -343,11 +343,12 @@ a:hover { text-decoration: underline; }
   </section>
 
   <section class="section-card">
-    <label class="input-label" for="source">BepInEx (unpacked archive)</label>
+    <label class="input-label" for="source">BepInEx source</label>
     <div class="input-group">
       <input type="text" id="source" placeholder="Folder holding BepInEx\ and dotnet\" readonly />
-      <button class="btn secondary" data-pick="source">Browse...</button>
-      <button class="btn secondary" id="dl-bepinex">Download</button>
+      <button class="btn secondary compact" id="source-zip">Zip...</button>
+      <button class="btn secondary compact" data-pick="source">Folder...</button>
+      <button class="btn secondary compact" id="dl-bepinex">Download</button>
     </div>
     <p class="input-hint" id="source-hint"></p>
   </section>
@@ -382,7 +383,6 @@ a:hover { text-decoration: underline; }
               <line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
           </button>
-          <button class="btn secondary compact" id="profile-switch">Switch</button>
         </div>
       </div>
       <div class="field">
@@ -395,7 +395,6 @@ a:hover { text-decoration: underline; }
             <option value="12">Asia</option>
             <option value="14">TW / HK / MO</option>
           </select>
-          <button class="btn secondary compact" id="server-set">Apply</button>
         </div>
       </div>
     </div>
@@ -612,6 +611,18 @@ async function loadLogo() {
   img.src = src;
 }
 
+// ---- coming into view ------------------------------------------------------
+//
+// The window starts off-screen and the launcher only puts it up when this fires, so that what
+// appears is the finished page. Two frames, not one: the first carries the layout this render just
+// queued, the second is the one actually painted.
+let revealed = false;
+function reveal() {
+  if (revealed) return;
+  revealed = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => call("reveal")));
+}
+
 function render() {
   // The notice goes where the version already is. A newer build is not a warning and does not
   // belong in the status line, and it is not something to interrupt anyone over.
@@ -630,8 +641,10 @@ function render() {
 
 
   $("source-hint").innerHTML = state.downloads
-    ? "The Unity.IL2CPP win-x64 archive, unpacked. Needed only until Prepare."
-    : 'The Unity.IL2CPP win-x64 archive, unpacked — <a data-url="' + state.bepInExUrl + '">download it here</a>.';
+    ? "The Unity.IL2CPP win-x64 archive — the zip as downloaded, or a folder already unpacked " +
+      "from it. Needed only until Prepare."
+    : 'The Unity.IL2CPP win-x64 archive — the zip as downloaded, or a folder already unpacked ' +
+      'from it. <a data-url="' + state.bepInExUrl + '">Download it here</a>.';
 
   $("unity-hint").innerHTML = state.unityLibsUrl
     ? (state.downloads
@@ -671,7 +684,7 @@ function render() {
   else if (!state.gameOk && !state.game) say("Heartopia was not found automatically — press Detect, or point at it with Browse.");
   else if (!state.gameOk) say("That folder is not an IL2CPP Heartopia build — point at the game with Browse.", "warning");
   else if (!state.prepared && !state.source && !state.downloads)
-    say("Point at the unpacked BepInEx archive — Launch does everything after that.");
+    say("Point at the BepInEx zip — Launch does everything after that.");
   else if (!ready) say("Nothing else to press: Launch sets the rest up first, which takes several minutes.");
   else say("Ready.");
 
@@ -682,7 +695,10 @@ function render() {
   $("generate").disabled = busy || !state.prepared || !state.gameOk;
   $("play").disabled = busy;
   $("dl-bepinex").disabled = busy;
+  $("source-zip").disabled = busy;
   $("dl-unitylibs").disabled = busy || !state.gameOk;
+
+  reveal();
 }
 
 // ---- starting on its own ---------------------------------------------------
@@ -826,7 +842,7 @@ async function loadProfiles() {
   for (const name of info.profiles) {
     const o = document.createElement("option");
     o.value = name;
-    o.textContent = name + (name === info.active ? "  (active)" : "");
+    o.textContent = name;
     if (name === info.active) o.selected = true;
     select.appendChild(o);
   }
@@ -834,7 +850,7 @@ async function loadProfiles() {
   $("profile-hint").textContent = info.available
     ? (info.active ? "" : "No active profile yet.")
     : "The game has not created its save folder yet.";
-  for (const b of ["profile", "profile-switch", "server-set", "profile-create"]) $(b).disabled = !info.available;
+  for (const b of ["profile", "server", "profile-create"]) $(b).disabled = !info.available;
 
   if (info.active) {
     const value = await call("serverGet", { profile: info.active });
@@ -875,10 +891,16 @@ $("expert").onchange = () => {
 };
 
 $("step-detect").onclick = () => $("detect").onclick();
-$("step-archive").onclick = async () => {
+
+// Both views take the zip the same way: it is unpacked into storage and the source path becomes
+// the folder that came out of it, which is what the expert field then shows. Picking a folder
+// stays available beside it - an install kept unpacked somewhere else is a supported setup.
+async function chooseArchive() {
   const chosen = await call("pickFile", { title: "BepInEx-Unity.IL2CPP-win-x64 archive" });
   if (chosen) run("useArchive", { path: chosen });
-};
+}
+$("step-archive").onclick = chooseArchive;
+$("source-zip").onclick = chooseArchive;
 
 $("detect").onclick = async () => {
   const found = await call("detectGame");
@@ -912,20 +934,24 @@ $("profile-create-ok").onclick = async () => {
   loadProfiles();
 };
 
-$("profile-switch").onclick = async () => {
+// Both dropdowns take effect the moment they change, so a failure cannot be left showing on
+// screen as if it had worked: loadProfiles puts them back to what is actually on disk.
+$("profile").onchange = async () => {
   const name = $("profile").value;
   if (!name) return;
   await call("profileSwitch", { name }).catch(e => { appendLog("• " + e.message); say(e.message, "warning"); });
   loadProfiles();
 };
 
-$("server-set").onclick = async () => {
+$("server").onchange = async () => {
   await call("serverSet", { profile: $("profile").value || "", value: parseInt($("server").value, 10) })
-    .catch(e => { appendLog("• " + e.message); say(e.message, "warning"); });
+    .catch(e => { appendLog("• " + e.message); say(e.message, "warning"); loadProfiles(); });
 };
 
-refresh();
+// The logo is asked for first so its answer comes back first: replies are written in the order the
+// requests arrive, and a logo that lands after the first render would appear after the window does.
 loadLogo();
+refresh();
 </script>
 </body>
 </html>

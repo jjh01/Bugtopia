@@ -172,9 +172,12 @@ namespace HeartopiaMod
             // "Walk to Zone Point" — travel to the next farm area on foot instead of the area:*
             // teleport. Independent of the vehicle switch below.
             public bool farmWalkToAreaEnabled;
+            public bool farmWalkRepathHoldNearCorner = true;
+            public bool farmWalkKeepFinalNode = true;
             // "Use Vehicle" + its distance slider — summon the default vehicle for a long zone
             // haul. Land only; underwater summons are rejected by the server.
             public bool farmWalkUseVehicleEnabled;
+            public bool farmWalkVehicleFixEnabled;
             public float farmWalkVehicleMinDistance;
             // Distance from the destination at which the driver gets out.
             public float farmWalkVehicleDismountDistance;
@@ -226,7 +229,10 @@ namespace HeartopiaMod
             public bool skipShowOffAnimations;
             public bool quietCongratsPopups;
             public bool quietBpPayRewardPopup;
+            public bool quietPetPhotoResultPopup;
             public bool emoteUnlockEnabled;
+            public bool paintStyleUnlockEnabled;
+            public bool furnitureDyePickerEnabled;
             public bool friendInteractUnlockEnabled;
             public bool foragingAnimEnabled;
             public bool skipCraftDyeAnimations;
@@ -350,6 +356,9 @@ namespace HeartopiaMod
             public bool netCookMiniGameOnly;
             public bool netCookMoveIngredients;
             public bool netCookRememberStoves;
+            public bool netCookSlotManualMode;
+            public bool netCookCookableOnly;
+            public string netCookSlotPrefs;
             public bool netCookCaptureOwnOnly;
             public bool netCookCaptureRadiusOnly;
             public bool netCookUseAllIngredients;

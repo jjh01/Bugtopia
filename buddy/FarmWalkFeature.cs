@@ -429,6 +429,18 @@ namespace HeartopiaMod
         private const float FarmWalkRepathInterval = 12f;
         private const float FarmWalkCorridorTolerance = 4f;
 
+        // Keep Final Waypoint: a restart this close to the node walks straight at it instead of
+        // building a route. Covers every stand-off the walker ends a walk at (1.1 m, 0.8 m, the
+        // 1.4 m aura reach) with room for the body having drifted a little while collecting.
+        private const float FarmWalkDirectStepInDistance = 3f;
+
+        // Hold Route Near Corners: radius around the current corner inside which no re-path runs.
+        // Wider than the corridor tolerance on purpose (see the gate for why), and the suppression
+        // line is throttled so a held wedge does not print every second.
+        private const float FarmWalkRepathHoldRadius = 6f;
+        private const float FarmWalkRepathHoldLogInterval = 5f;
+        private float farmWalkRepathHoldLoggedAt = -999f;
+
         // How much shorter a rebuilt route must be to count as progress rather than a reshuffle.
         // Half a metre is under the noise of re-snapping both ends and well under the spacing of the
         // waypoint graph, so it passes real improvements and rejects the 3<->5 corner flip.
@@ -720,7 +732,21 @@ namespace HeartopiaMod
         // at all (twice-confirmed silent AreaForbid), and its summon needs clear space in front of
         // the player. Either switch is useful without the other.
         internal bool farmWalkToAreaEnabled;
+
+        // "Hold Route Near Corners": no re-path of any kind while the walker is within
+        // FarmWalkRepathHoldRadius of the corner it is steering at. See the gate in RunFarmWalkTick.
+        internal bool farmWalkRepathHoldNearCorner = true;
+
+        // "Keep Final Waypoint": the last graph corner before the resource is cleared only by
+        // being REACHED, never by the "passed" test. See the two corner-skip loops.
+        internal bool farmWalkKeepFinalNode = true;
+        private int farmWalkFinalNodeHoldLoggedIndex = -1;
         internal bool farmWalkUseVehicleEnabled;
+
+        // "Fix vehicle movement": while Auto Farm runs, the ridden vehicle's TableCar row gets
+        // the steering the walker can actually drive with; the table values come back when Auto
+        // Farm stops. See FarmWalkVehicleFeature.ApplyFarmWalkVehicleMovementFix.
+        internal bool farmWalkVehicleFixEnabled;
 
         // Straight-line distance past which the vehicle is worth summoning. Slider bounds, not
         // behaviour limits: below the floor the summon costs more time than it saves, and the
@@ -977,7 +1003,22 @@ namespace HeartopiaMod
             // Already in server collect range. Start a walk that completes on its first tick rather
             // than returning false — false sends the caller into FarmTeleportTo, which is how the
             // farm ended up teleporting onto a node it was already standing 1.3 m from.
-            bool alreadyInRange = Distance3D(selfPos, target) <= FarmWalkCollectDistance;
+            // ⭐ A STEP-IN IS NOT A JOURNEY — WITH KEEP FINAL WAYPOINT ON, CLOSE THE LAST METRES
+            // STRAIGHT, WITHOUT THE GRAPH.
+            //
+            // "Did not collect from 1,1m — stepping in to 0,8m" restarts the walk to the same node
+            // from a metre away, and that restart used to go through the full route builder: a start
+            // snap up to 60 m out, the retry's end-node exclusion picking a DIFFERENT final waypoint,
+            // an audit, a shortcut pass. With the final waypoint kept rather than passed, the rebuilt
+            // route then led back out to a waypoint the walker had just come from and in again —
+            // the route was "rebuilt" when all that was asked for was thirty centimetres more.
+            //
+            // Inside FarmWalkDirectStepInDistance of the node the walker has just walked the final
+            // leg to it, so the straight line is the leg it is already on. Corners = [node], no
+            // snap, no audit, no shortcut; the re-path triggers stay held by the same option.
+            float directRange = this.farmWalkKeepFinalNode ? FarmWalkDirectStepInDistance : FarmWalkCollectDistance;
+            float targetDistance = Distance3D(selfPos, target);
+            bool alreadyInRange = targetDistance <= directRange;
 
             if (alreadyInRange)
             {
@@ -985,6 +1026,11 @@ namespace HeartopiaMod
                 this.farmWalkCorners.Add(target);
                 this.farmWalkCornerIndex = 0;
                 this.farmWalkLegStart = selfPos;
+                if (targetDistance > FarmWalkCollectDistance)
+                {
+                    ModLogger.Msg("[FarmWalk] " + label + ": stepping straight in from "
+                        + targetDistance.ToString("F2") + "m — no route built (Keep Final Waypoint).");
+                }
             }
             else if (!this.TryBuildFarmWalkRoute(selfPos, target))
             {
@@ -1431,6 +1477,13 @@ namespace HeartopiaMod
 
                 bool reached = HorizontalDistance(from, candidate) <= FarmWalkCornerReachDistance;
                 bool passed = HorizontalDistance(from, next) < HorizontalDistance(candidate, next);
+                // Same switch as the tick's loop: the final waypoint is not skipped at build either.
+                if (this.farmWalkKeepFinalNode && passed && !reached
+                    && this.farmWalkCornerIndex == this.farmWalkCorners.Count - 2)
+                {
+                    passed = false;
+                }
+
                 if (!reached && !passed)
                 {
                     break;
@@ -1440,6 +1493,7 @@ namespace HeartopiaMod
             }
 
             this.farmWalkLegStart = from;
+            this.farmWalkFinalNodeHoldLoggedIndex = -1;
             this.farmWalkStartNodeIndex = startIndex;
             this.farmWalkEndNodeIndex = endIndex;
             return this.farmWalkCorners.Count > 0;
@@ -1924,12 +1978,42 @@ namespace HeartopiaMod
 
                 bool reached = HorizontalDistance(selfPos, candidate) <= FarmWalkCornerReachDistance;
                 bool passed = HorizontalDistance(selfPos, next) < HorizontalDistance(candidate, next);
+
+                // ⭐ OPTIONAL: THE FINAL WAYPOINT IS WALKED TO, NOT PASSED. "passed" is what drops
+                // the last graph corner when the player is already nearer the resource than that
+                // corner is — measured 17:28:55, a corner 6 m beyond the node skipped at ~5 m out.
+                // Right for a detour; with this switch the walker takes the corner anyway, at the
+                // price of that detour. Only the corner whose `next` is the resource itself.
+                if (this.farmWalkKeepFinalNode && passed && !reached
+                    && this.farmWalkCornerIndex == this.farmWalkCorners.Count - 2)
+                {
+                    passed = false;
+                    if (this.farmWalkFinalNodeHoldLoggedIndex != this.farmWalkCornerIndex)
+                    {
+                        this.farmWalkFinalNodeHoldLoggedIndex = this.farmWalkCornerIndex;
+                        ModLogger.Msg("[FarmWalk] " + this.farmWalkLabel + ": keeping final waypoint "
+                            + this.farmWalkCornerIndex + " at "
+                            + HorizontalDistance(selfPos, candidate).ToString("F1")
+                            + "m — it would have been passed, walking to it instead.");
+                    }
+                }
+
                 if (!reached && !passed)
                 {
                     break;
                 }
 
-                this.farmWalkLegStart = candidate;
+                // ⚠️ A PASSED CORNER IS NOT WHERE THE PLAYER IS. A corner cleared by "reached" is
+                // underfoot, so it can start the next leg. A corner cleared by "passed" was never
+                // visited — typically a graph detour the player is already nearer the far end of — and
+                // starting the leg there measures the corridor against a segment the player is not
+                // on. Measured 17:28:55 with the instrumented re-path line: a 6.1 m detour corner
+                // south of the node was passed at ~5 m out, the leg became detour -> node, the
+                // player approaching from the other side was "6,1m off" it in the same tick, and
+                // the route was rebuilt (3 -> 1 corners) two seconds into a 12 m walk. The rebuild
+                // happened to be 10 m better, which is how a false trigger hides: it looks like work.
+                // The segment actually being walked starts from the player, so that is the leg start.
+                this.farmWalkLegStart = reached ? candidate : selfPos;
                 this.farmWalkCornerIndex++;
                 this.farmWalkEverAdvanced = true;
 
@@ -1965,6 +2049,50 @@ namespace HeartopiaMod
             bool notClosing = now - this.farmWalkBestAt >= FarmWalkNoClosingTimeout * 0.5f;
             bool safetyDue = now >= this.farmWalkNextRepathAt;
 
+            // ⭐ OPTIONAL: NO RE-PATH AT ALL WHILE CLOSING ON THE CORNER.
+            //
+            // A rebuild this close to a corner cannot improve anything — the corner is about to be
+            // passed and the next leg starts from it — but it can do harm: the start re-snaps from
+            // the player, the shortcut pass runs again, and the head the walker was steering at can
+            // be swapped for a neighbouring one. The "off corridor" trigger is also at its most
+            // trigger-happy right here: a wide corner on a fast vehicle is 4 m of lateral drift by
+            // construction, exactly the tolerance, and every such re-path came back IDENTICAL.
+            // Three of those ban a waypoint (rule 1a.4), so the cost of a false trigger at a corner
+            // is a hole in the graph, not a log line.
+            //
+            // A switch rather than a rule, because the escape hatch is real: a walker wedged inside
+            // this radius gets no fresh route from here — only the stuck ladder (escapes, hop bursts)
+            // and, past that, the walk's own timeouts. The radius is above the corridor tolerance so
+            // a wide turn never trips it, and short enough that a genuinely stale route is rebuilt
+            // on the next leg. Every suppression is written down, throttled, so the log still says
+            // what would have happened.
+            //
+            // ⚠️ BOTH ENDS OF THE LEG, NOT ONLY THE CORNER AHEAD. The first version measured the
+            // corner being steered at, and the switch visibly changed nothing: a corner is advanced
+            // by the "passed" test (closer to the NEXT corner than this one is), which on a wide
+            // approach fires BEFORE the corner is reached. The leg start jumps to that corner, the
+            // corridor becomes the next segment, the player — still short of the corner — is now
+            // metres off it, and the re-path fires while the corner ahead is far away. So the hold
+            // is measured against the corner just passed as well.
+            float holdToCorner = HorizontalDistance(selfPos, corner);
+            float holdToLegStart = HorizontalDistance(selfPos, this.farmWalkLegStart);
+            if (this.farmWalkRepathHoldNearCorner && (offCorridor || notClosing || safetyDue)
+                && (holdToCorner <= FarmWalkRepathHoldRadius || holdToLegStart <= FarmWalkRepathHoldRadius))
+            {
+                if (now >= this.farmWalkRepathHoldLoggedAt + FarmWalkRepathHoldLogInterval)
+                {
+                    this.farmWalkRepathHoldLoggedAt = now;
+                    ModLogger.Msg("[FarmWalk] " + this.farmWalkLabel + ": holding the route — corner "
+                        + this.farmWalkCornerIndex + " at " + holdToCorner.ToString("F1") + "m, leg start at "
+                        + holdToLegStart.ToString("F1") + "m — re-path suppressed ("
+                        + (offCorridor ? "off corridor" : notClosing ? "not closing" : "safety cadence") + ").");
+                }
+
+                offCorridor = false;
+                notClosing = false;
+                safetyDue = false;
+            }
+
             // ⚠️ NEVER REBUILD THE ROUTE UNDER A RUNNING ESCAPE. The escape captured its aim when it
             // began and measures every hop against that point; swapping the corner list mid-flight
             // moves the goalposts and resets the corner index, so a sequence that was gaining metres
@@ -1991,6 +2119,12 @@ namespace HeartopiaMod
 
             if (offCorridor || notClosing || safetyDue)
             {
+                float triggerDeviation = DistanceToWalkLeg(selfPos, this.farmWalkLegStart, corner);
+                Vector3 triggerLegStart = this.farmWalkLegStart;
+                Vector3 triggerCorner = corner;
+                int triggerCornerIndex = this.farmWalkCornerIndex;
+                float triggerToCorner = HorizontalDistance(selfPos, corner);
+
                 this.farmWalkNextRepathAt = now + FarmWalkRepathInterval;
                 this.farmWalkLastRepathAt = now;
 
@@ -2013,8 +2147,15 @@ namespace HeartopiaMod
                     bool routeImproved = routeChanged
                         && rebuiltRemaining < this.farmWalkBestDistance - FarmWalkRepathMustGain;
 
+                    // ⚠️ SAY WHAT THE TRIGGER MEASURED. The verdict alone ("off corridor") could not
+                    // tell a genuine push-off from a corner advanced early by the "passed" test: both
+                    // read the same. The deviation, the leg it was measured against and how far the
+                    // corner ahead was are what separate them.
                     ModLogger.Msg("[FarmWalk] " + this.farmWalkLabel + ": re-pathed ("
-                        + (offCorridor ? "off corridor" : notClosing ? "not closing" : "safety cadence")
+                        + (offCorridor ? "off corridor " + triggerDeviation.ToString("F1") + "m off leg "
+                                + FormatNavMeshVector(triggerLegStart) + " -> " + FormatNavMeshVector(triggerCorner)
+                                + ", corner " + triggerCornerIndex + " was " + triggerToCorner.ToString("F1") + "m away"
+                            : notClosing ? "not closing" : "safety cadence")
                         + "): " + cornersBefore + " -> " + this.farmWalkCorners.Count
                         + " corners, now at " + this.farmWalkCornerIndex
                         // ⚠️ SAY WHAT IS BEING COMPARED. "no shorter" reads as old route vs new
