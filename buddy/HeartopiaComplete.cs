@@ -754,6 +754,7 @@ namespace HeartopiaMod
             this.ProcessSwimSprintTweakOnUpdate();
             this.ProcessJumpTuningOnUpdate();
             this.ProcessGameUiTimingsOnUpdate();
+            this.ProcessMiniMapZoomOnUpdate();
             this.UpdateMovementInputBridge();
             this.ProcessAutoIceSkatingOnUpdate();
             Breadcrumbs.Phase("ou.bubble");
@@ -761,6 +762,7 @@ namespace HeartopiaMod
             this.ProcessBubbleSpawnAtPlayerOnUpdate();
             this.ProcessAutoBubbleCollectOnUpdate();
             this.ProcessPetPoopOnUpdate();
+            this.ProcessWildVisitGiftOnUpdate();
             Breadcrumbs.Phase("ou.animskip");
             this.ProcessShowOffBypassOnUpdate();
             this.ProcessQuietPopupsOnUpdate();
@@ -772,6 +774,7 @@ namespace HeartopiaMod
             this.ProcessRepairThrowAnimationTrimOnUpdate();
             this.ProcessCraftDirectSendOnUpdate();
             this.ProcessInteractObstacleBypassOnUpdate();
+            this.ProcessPetHeightLimitBypassOnUpdate();
             this.ProcessFishingCameraHudOnUpdate();
             this.ProcessServerSideFishingOnUpdate();
             this.EnsureCollectColdRegistrations();
@@ -803,13 +806,15 @@ namespace HeartopiaMod
             this.ProcessLittleWhaleFinderOnUpdate();
             Breadcrumbs.Phase("ou.research");
             this.ProcessResearchMonitorOnUpdate();
-            Breadcrumbs.Phase("ou.sanrio");
-            this.ProcessSanrioGachaFinderOnUpdate();
             // Quest Walk drives the SAME walker the farm does, so it must tick before the shell
             // (which only paints) and outside the farm state machine (which owns the walker only
             // while a farm run is going). QuestWalkFeature.cs.
             Breadcrumbs.Phase("ou.questwalk");
             this.ProcessQuestWalkOnUpdate();
+            // Ocean Cleanup boss: the same walker again, outside the farm state machine
+            // (CleanupBossFeature.cs).
+            Breadcrumbs.Phase("ou.cleanupboss");
+            this.ProcessCleanupBossOnUpdate();
             Breadcrumbs.Phase("ou.uguishell");
             this.ProcessUguiShellOnUpdate();
             // Floating UGUI Building Move Panel — deliberately NOT inside ProcessUguiShellOnUpdate
@@ -2993,6 +2998,7 @@ namespace HeartopiaMod
             this.trackedObjectMarkers.Clear();
             this.trackedBubbleMarkers.Clear();
             this.trackedPetPoopMarkers.Clear();
+            this.trackedWildGiftAnimalMarkers.Clear();
             this.ClearHideAndSeekMorphMarkers();
             this.bubbleRadarTrackedPositions.Clear();
             this.bubbleRadarSnapshotPositions.Clear();
@@ -4104,7 +4110,9 @@ namespace HeartopiaMod
             // Stealth Foraging dives these by StealthForagingNodeDepth like any other area arrival
             // (ApplyForagingAreaTeleportOffset at the MovingToLocation hop) — the checkpoint Y here
             // is the surface value, the offset is applied to the teleport argument only.
-            new HeartopiaComplete.FarmLocation("Sea Area 1", new Vector3(63.046f, -29.962f, -98.496f), "underwater"),
+            // "Sea Area 1" (63.0, -30.0, -98.5) was removed 2026-09-16: its checkpoint sits at the
+            // surface on the sea exit, and arriving there walked the player out of the underwater
+            // level into Town (LogOutput 01:24:21). The numbering of the rest is kept on purpose.
             new HeartopiaComplete.FarmLocation("Sea Area 2", new Vector3(-11.765f, -30.505f, -89.748f), "underwater"),
             new HeartopiaComplete.FarmLocation("Sea Area 3", new Vector3(-72.961f, -26.167f, -86.867f), "underwater"),
             new HeartopiaComplete.FarmLocation("Sea Area 4", new Vector3(-79.833f, -62.545f, -74.349f), "underwater"),

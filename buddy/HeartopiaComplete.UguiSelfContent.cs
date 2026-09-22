@@ -104,6 +104,7 @@ namespace HeartopiaMod
             public Toggle QuietPopupsToggle;
             public Toggle QuietBpPayToggle;
             public Toggle QuietPetPhotoToggle;
+            public Toggle QuietAnimalCardToggle;
             public Toggle ActivityRewardClaimToggle;
             public Toggle ActivityHideEndPanelToggle;
             public GameObject QuietPopupsHint;
@@ -113,6 +114,7 @@ namespace HeartopiaMod
             public Toggle CraftDirectSendToggle;
             public Toggle InteractObstacleToggle;
             public Toggle InteractBuildModeToggle;
+            public Toggle PetHeightLimitToggle;
             public Toggle BlockTutorialsToggle;
             public Toggle AutoLearnRecipesToggle;
             public Toggle AutoLikeOwnHomeToggle;
@@ -372,6 +374,10 @@ namespace HeartopiaMod
                 this.L("Hide the pet photo card"), this.quietPetPhotoResultPopup,
                 new System.Action<bool>(this.OnUguiSelfQuietPetPhotoToggled));
 
+            handle.QuietAnimalCardToggle = this.CreateUguiCheckbox(scrollContent, "QuietAnimalCardToggle",
+                this.L("Hide animal cards"), this.quietAnimalCardPopups,
+                new System.Action<bool>(this.OnUguiSelfQuietAnimalCardToggled));
+
             handle.ActivityRewardClaimToggle = this.CreateUguiCheckbox(scrollContent, "ActivityRewardClaimToggle",
                 this.L("Auto-Claim Event Rewards"), this.activityRewardAutoClaim,
                 new System.Action<bool>(this.OnUguiSelfActivityRewardClaimToggled));
@@ -400,6 +406,9 @@ namespace HeartopiaMod
             handle.InteractBuildModeToggle = this.CreateUguiCheckbox(scrollContent, "InteractBuildModeToggle",
                 this.L("Ignore build mode on the interaction target"), this.interactBuildModeBypassEnabled,
                 new System.Action<bool>(this.OnUguiSelfInteractBuildModeToggled));
+            handle.PetHeightLimitToggle = this.CreateUguiCheckbox(scrollContent, "PetHeightLimitToggle",
+                this.L("Pet cats and dogs from any height"), this.petHeightLimitBypassEnabled,
+                new System.Action<bool>(this.OnUguiSelfPetHeightLimitToggled));
             handle.BlockTutorialsToggle = this.CreateUguiCheckbox(scrollContent, "BlockTutorialsToggle",
                 this.L("Disable tutorials"), this.blockTutorials,
                 new System.Action<bool>(this.OnUguiSelfBlockTutorialsToggled));
@@ -654,6 +663,12 @@ namespace HeartopiaMod
             }
             yCur += 30f;
 
+            if (handle.QuietAnimalCardToggle != null)
+            {
+                PlaceUguiTopLeft(handle.QuietAnimalCardToggle.gameObject, rowX, yCur, rowW, 24f);
+            }
+            yCur += 30f;
+
             if (handle.ActivityRewardClaimToggle != null)
             {
                 PlaceUguiTopLeft(handle.ActivityRewardClaimToggle.gameObject, rowX, yCur, rowW, 24f);
@@ -699,6 +714,12 @@ namespace HeartopiaMod
             if (handle.InteractBuildModeToggle != null)
             {
                 PlaceUguiTopLeft(handle.InteractBuildModeToggle.gameObject, rowX, yCur, rowW, 24f);
+            }
+            yCur += 30f;
+
+            if (handle.PetHeightLimitToggle != null)
+            {
+                PlaceUguiTopLeft(handle.PetHeightLimitToggle.gameObject, rowX, yCur, rowW, 24f);
             }
             yCur += 30f;
 
@@ -767,6 +788,7 @@ namespace HeartopiaMod
                 this.SyncUguiToggleFromField(handle.QuietPopupsToggle, this.quietCongratsPopups);
                 this.SyncUguiToggleFromField(handle.QuietBpPayToggle, this.quietBpPayRewardPopup);
                 this.SyncUguiToggleFromField(handle.QuietPetPhotoToggle, this.quietPetPhotoResultPopup);
+                this.SyncUguiToggleFromField(handle.QuietAnimalCardToggle, this.quietAnimalCardPopups);
                 this.SyncUguiToggleFromField(handle.ActivityRewardClaimToggle, this.activityRewardAutoClaim);
                 this.SyncUguiToggleFromField(handle.ActivityHideEndPanelToggle, this.activityHideEndPanel);
                 this.SyncUguiToggleFromField(handle.EmoteUnlockToggle, this.emoteUnlockEnabled);
@@ -775,6 +797,7 @@ namespace HeartopiaMod
                 this.SyncUguiToggleFromField(handle.CraftDirectSendToggle, this.craftDirectSendEnabled);
                 this.SyncUguiToggleFromField(handle.InteractObstacleToggle, this.interactObstacleBypassEnabled);
                 this.SyncUguiToggleFromField(handle.InteractBuildModeToggle, this.interactBuildModeBypassEnabled);
+                this.SyncUguiToggleFromField(handle.PetHeightLimitToggle, this.petHeightLimitBypassEnabled);
                 this.SyncUguiToggleFromField(handle.BlockTutorialsToggle, this.blockTutorials);
                 this.SyncUguiToggleFromField(handle.AutoLearnRecipesToggle, this.autoLearnRecipes);
                 this.SyncUguiToggleFromField(handle.AutoLikeOwnHomeToggle, this.autoLikeOwnHome);
@@ -1223,6 +1246,17 @@ namespace HeartopiaMod
         }
 
         // Own toggle, own hook latch — see QuietPopupsFeature. Save only.
+        private void OnUguiSelfQuietAnimalCardToggled(bool value)
+        {
+            if (value == this.quietAnimalCardPopups)
+            {
+                return;
+            }
+            this.quietAnimalCardPopups = value;
+            try { this.SaveKeybinds(false); } catch { }
+        }
+
+        // Own toggle, own hook latch — see QuietPopupsFeature. Save only.
         private void OnUguiSelfQuietBpPayToggled(bool value)
         {
             if (value == this.quietBpPayRewardPopup)
@@ -1303,6 +1337,16 @@ namespace HeartopiaMod
                 return;
             }
             this.interactBuildModeBypassEnabled = value;
+            try { this.SaveKeybinds(false); } catch { }
+        }
+
+        private void OnUguiSelfPetHeightLimitToggled(bool value)
+        {
+            if (value == this.petHeightLimitBypassEnabled)
+            {
+                return;
+            }
+            this.petHeightLimitBypassEnabled = value;
             try { this.SaveKeybinds(false); } catch { }
         }
 

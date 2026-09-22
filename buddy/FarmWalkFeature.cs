@@ -41,7 +41,33 @@ namespace HeartopiaMod
 
         // A corner is "reached" inside this XZ radius. Loose enough that the locomotion's own
         // acceleration curve does not overshoot into an orbit around the point.
-        private const float FarmWalkCornerReachDistance = 1.2f;
+        // Corner reach: how close, in XZ, the walker must come to an intermediate corner for it to
+        // count as reached. A setting since the slider was asked for; 1.2 m is the value that was
+        // the constant. 0 is allowed and means "only by passing it" — the "passed" test still
+        // advances corners, so the walk cannot wedge on an unreachable radius.
+        //
+        // Three values, because the three ways of moving miss a corner differently: a walker can
+        // stop on it, a vehicle carries wide by its turn lag, a swimmer drifts in three dimensions.
+        // Resolved at the moment a corner is judged, from what the body is doing right then.
+        internal const float FarmWalkCornerReachFloor = 0f;
+        internal const float FarmWalkCornerReachCeiling = 3f;
+        internal const float FarmWalkCornerReachDefault = 1.2f;
+        internal float farmWalkCornerReachFoot = FarmWalkCornerReachDefault;
+        internal float farmWalkCornerReachVehicle = FarmWalkCornerReachDefault;
+        internal float farmWalkCornerReachSwim = FarmWalkCornerReachDefault;
+
+        // Swimming first: a swimmer is never in a seat. Then the seat, by the live check with the
+        // dismount settle window (IsFarmWalkVehicleSteering), so a get-off in flight already counts
+        // as on foot.
+        private float ResolveFarmWalkCornerReach()
+        {
+            if (this.farmWalkIsSwimming)
+            {
+                return this.farmWalkCornerReachSwim;
+            }
+
+            return this.IsFarmWalkVehicleSteering() ? this.farmWalkCornerReachVehicle : this.farmWalkCornerReachFoot;
+        }
 
         // Arrival is measured in 3-D, not in XZ.
         //
@@ -317,6 +343,11 @@ namespace HeartopiaMod
         private const int FarmWalkMaxFutileRepaths = 3;
 
         private int farmWalkFutileRepaths;
+        // The furthest corner index reached on the CURRENT route shape. An identical rebuild puts the
+        // index back to the first corner still ahead; re-advancing over corners already cleared on
+        // that same route is not progress and must not reset the futile tally (see the corner
+        // advance and the re-path block).
+        private int farmWalkHighestCorner = -1;
 
         // Waypoints proven unwalkable, mapped to the time their ban lifts. Survives between walks —
         // the blockage is a property of the world, and re-learning it costs a whole walk each time.
@@ -755,6 +786,15 @@ namespace HeartopiaMod
         internal const float FarmWalkVehicleMinDistanceCeiling = 1000f;
         internal float farmWalkVehicleMinDistance = 50f;
 
+        // "Vehicle Delay": walk the first N seconds of a haul on foot and summon the vehicle only
+        // then (user request 2026-09-22). 0 = summon at the start, as before. The summon still
+        // needs the remaining haul to be worth it when the delay ends (ShouldFarmWalkSummonVehicle
+        // re-measures), so a short leg walked most of the way stays on foot.
+        internal const float FarmWalkVehicleDelayFloor = 0f;
+        internal const float FarmWalkVehicleDelayCeiling = 30f;
+        internal float farmWalkVehicleDelaySeconds;
+        private float farmWalkVehicleDelayedUntil = -1f;   // < 0 = no summon pending
+
         // Mirrors StealthForagingActive: the toggle only means anything while a run is going.
         // Read by OutOfBoundsGuardFeature — see IsOutOfBoundsGuardRequested for why.
         //
@@ -763,7 +803,8 @@ namespace HeartopiaMod
         // a term from it every underwater relocation got rolled back 48 m upward. A quest walk
         // drives the same walker through the same water, so it needs the same suppression.
         internal bool FarmWalkRunActive => (this.farmWalkToNodeEnabled && this.autoFarmActive)
-                                           || this.questWalkFollowing;
+                                           || this.questWalkFollowing
+                                           || this.CleanupBossDrivingWalker;
 
         // How many alternative end nodes to try when the direct line to a node is blocked.
         private const int FarmWalkDetourAttempts = 4;
@@ -941,6 +982,7 @@ namespace HeartopiaMod
             // third target was abandoned after ONE rebuild and the fourth after one more, which is
             // what turned "try another node" into "teleport" so quickly.
             this.farmWalkFutileRepaths = 0;
+            this.farmWalkHighestCorner = -1;
 
             // A retry avoids the final waypoint whose approach already failed; every other walk
             // starts with no end-side restriction.
@@ -1082,9 +1124,20 @@ namespace HeartopiaMod
             // the hotkey put the player in a vehicle that then went nowhere.
             //
             // The vehicle is transport for a journey; whether the journey exists is decided first.
+            this.farmWalkVehicleDelayedUntil = -1f;
             if (!alreadyInRange && this.ShouldFarmWalkSummonVehicle(selfPos, target))
             {
-                this.TryFarmWalkSummonAndMount(); // failure means "walk it", never "abort"
+                if (this.farmWalkVehicleDelaySeconds > 0f)
+                {
+                    // Walk first; the tick summons when the delay has run (TryRemountFarmWalkVehicle).
+                    this.farmWalkVehicleDelayedUntil = Time.unscaledTime + this.farmWalkVehicleDelaySeconds;
+                    ModLogger.Msg("[FarmVehicle] " + label + ": vehicle in " + this.farmWalkVehicleDelaySeconds.ToString("F0")
+                        + "s — walking the first stretch.");
+                }
+                else
+                {
+                    this.TryFarmWalkSummonAndMount(); // failure means "walk it", never "abort"
+                }
             }
 
             // Generous deadline: straight-line metres at the configured speed, tripled for detours,
@@ -1248,8 +1301,18 @@ namespace HeartopiaMod
             // and the snap is exactly what fails there: 86 nodes to cover a whole sea floor, so
             // "no reachable graph node within 60m" refuses routes that a fifteen-metre swim would
             // have finished. Asking first also skips an A* whose answer we were going to discard.
-            if (this.IsFarmWalkDirectSwimClear(from, to, out string swimWhy))
+            // Rule 4.11: the Ocean Cleanup safe-zone dash is a straight swim by decree, not by
+            // sweep. The countdown is 8 s and the bubble is 8-23 m away; a blocked-sweep refusal
+            // would hand the job to the graph, and the graph detour costs the bubble.
+            bool straightByRule = string.Equals(this.farmWalkLabel, "cleanupboss:safezone", StringComparison.Ordinal);
+            string swimWhy = string.Empty;
+            if (straightByRule || this.IsFarmWalkDirectSwimClear(from, to, out swimWhy))
             {
+                if (straightByRule)
+                {
+                    swimWhy = "safe-zone dash, straight by rule 4.11 over "
+                        + Vector3.Distance(from, to).ToString("F1") + "m";
+                }
                 this.farmWalkCorners.Clear();
                 this.farmWalkCorners.Add(to);
                 this.farmWalkCornerIndex = 0;
@@ -1475,7 +1538,7 @@ namespace HeartopiaMod
                 Vector3 candidate = this.farmWalkCorners[this.farmWalkCornerIndex];
                 Vector3 next = this.farmWalkCorners[this.farmWalkCornerIndex + 1];
 
-                bool reached = HorizontalDistance(from, candidate) <= FarmWalkCornerReachDistance;
+                bool reached = HorizontalDistance(from, candidate) <= this.ResolveFarmWalkCornerReach();
                 bool passed = HorizontalDistance(from, next) < HorizontalDistance(candidate, next);
                 // Same switch as the tick's loop: the final waypoint is not skipped at build either.
                 if (this.farmWalkKeepFinalNode && passed && !reached
@@ -1976,7 +2039,7 @@ namespace HeartopiaMod
                 Vector3 candidate = this.farmWalkCorners[this.farmWalkCornerIndex];
                 Vector3 next = this.farmWalkCorners[this.farmWalkCornerIndex + 1];
 
-                bool reached = HorizontalDistance(selfPos, candidate) <= FarmWalkCornerReachDistance;
+                bool reached = HorizontalDistance(selfPos, candidate) <= this.ResolveFarmWalkCornerReach();
                 bool passed = HorizontalDistance(selfPos, next) < HorizontalDistance(candidate, next);
 
                 // ⭐ OPTIONAL: THE FINAL WAYPOINT IS WALKED TO, NOT PASSED. "passed" is what drops
@@ -2018,7 +2081,19 @@ namespace HeartopiaMod
                 this.farmWalkEverAdvanced = true;
 
                 // Real progress along the route — the futile-rebuild tally starts over.
-                this.farmWalkFutileRepaths = 0;
+                //
+                // ⚠️ ONLY FOR A CORNER NOT CLEARED BEFORE ON THIS ROUTE. 2026-09-18, node:Wakame:
+                // twenty-four "re-pathed (safety cadence) … now at 0 (IDENTICAL)" in a row, five
+                // minutes on one walk. The leg after corner 0 was blocked; the player cleared corner
+                // 0, was pushed back off the leg, the 12 s rebuild handed the identical route back
+                // starting at corner 0 again, the player cleared it again — and every one of those
+                // re-clears zeroed the tally here, so three futile rebuilds never accumulated and
+                // the walk could not end.
+                if (this.farmWalkCornerIndex > this.farmWalkHighestCorner)
+                {
+                    this.farmWalkHighestCorner = this.farmWalkCornerIndex;
+                    this.farmWalkFutileRepaths = 0;
+                }
             }
 
             if (this.farmWalkCornerIndex >= this.farmWalkCorners.Count)
@@ -2131,6 +2206,7 @@ namespace HeartopiaMod
                 // From here down the route is our own, whoever owned it until now.
                 this.farmWalkOwnRouteSeq++;
                 int cornersBefore = this.farmWalkCorners.Count;
+                int cornerIndexBefore = this.farmWalkCornerIndex;
                 Vector3 firstBefore = this.farmWalkCorners.Count > 0 ? this.farmWalkCorners[0] : Vector3.zero;
                 if (this.TryBuildFarmWalkRoute(selfPos, this.farmWalkTarget) && this.farmWalkCorners.Count > 0)
                 {
@@ -2157,7 +2233,7 @@ namespace HeartopiaMod
                                 + ", corner " + triggerCornerIndex + " was " + triggerToCorner.ToString("F1") + "m away"
                             : notClosing ? "not closing" : "safety cadence")
                         + "): " + cornersBefore + " -> " + this.farmWalkCorners.Count
-                        + " corners, now at " + this.farmWalkCornerIndex
+                        + " corners, was at " + cornerIndexBefore + ", now at " + this.farmWalkCornerIndex
                         // ⚠️ SAY WHAT IS BEING COMPARED. "no shorter" reads as old route vs new
                         // route, and it is not: rebuiltRemaining is measured against
                         // farmWalkBestDistance, the best remaining this walk has ever achieved. Once
@@ -2192,6 +2268,8 @@ namespace HeartopiaMod
                         this.farmWalkBestDistance = rebuiltRemaining;
                         this.farmWalkBestAt = now;
                         this.farmWalkFutileRepaths = 0;
+                        // A new shape: its corners have not been cleared yet.
+                        this.farmWalkHighestCorner = this.farmWalkCornerIndex - 1;
                     }
                     else
                     {
@@ -2800,6 +2878,11 @@ namespace HeartopiaMod
         internal bool FarmWalkTargetIsBubble =>
             string.Equals(this.farmWalkDwellLabel, "Bubble", StringComparison.Ordinal);
 
+        // Dog poop (PetPoopFeature.cs) is a pickable, not a resource: it never appears in the
+        // collectable scan, so the absence gate below would call every poop walk "not there".
+        internal bool FarmWalkTargetIsPetPoop =>
+            string.Equals(this.farmWalkDwellLabel, "Dog Poop", StringComparison.Ordinal);
+
         private void UpdateFarmWalkBubbleChase(Vector3 selfPos, float now)
         {
             if (!this.FarmWalkTargetIsBubble)
@@ -2852,6 +2935,11 @@ namespace HeartopiaMod
         private void TryRefineFarmWalkTargetHeight(Vector3 selfPos)
         {
             if (this.farmWalkHeightRefined
+                // The Ocean Cleanup boss walks aim at a point in open water (the boss standoff, the
+                // safe-zone centre) — a collectable that happens to stand near it says nothing about
+                // the aim's height. 01:4x: a bend of the bubble dash was lifted 5 m onto a pollutant
+                // and the leg cost 4.7 of the 8 s. CleanupBossFeature.cs.
+                || this.farmWalkLabel.StartsWith("cleanupboss:", StringComparison.Ordinal)
                 || this.farmWalkAimOffsetY != 0f    // contamination standoff owns its own height
                 || HorizontalDistance(selfPos, this.farmWalkTarget) > FarmWalkHeightRefineRange)
             {
@@ -2972,6 +3060,7 @@ namespace HeartopiaMod
             if (!this.farmWalkLabel.StartsWith("node:", StringComparison.Ordinal)
                 || this.farmWalkAimOffsetY != 0f    // contamination standoff: aimed off the node
                 || this.FarmWalkTargetIsBubble      // bubbles are not in the collectable scan
+                || this.FarmWalkTargetIsPetPoop     // neither is a pickable (dog poop)
                 || this.autoFarmTargetIsBubble)
             {
                 return false;
@@ -3372,6 +3461,7 @@ namespace HeartopiaMod
             this.farmWalkPendingCleanse = false;
             this.farmWalkPendingArea = false;
             this.farmWalkVehicleLeftForObstacle = false;   // never leaks into the next walk
+            this.farmWalkVehicleDelayedUntil = -1f;
             if (this.farmWalkVehicleOurs && !keepVehicle)
             {
                 this.TryFarmWalkDismount("walk aborted");
@@ -3621,6 +3711,7 @@ namespace HeartopiaMod
             this.farmWalkVehicleLastSummonAt = 0f;
             this.farmWalkVehicleLastDismountAt = -999f;
             this.farmWalkVehicleLeftForObstacle = false;
+            this.farmWalkVehicleDelayedUntil = -1f;
             this.farmWalkVehicleUnstickRounds = 0;
             this.farmWalkVehicleSideSign = 1;
 

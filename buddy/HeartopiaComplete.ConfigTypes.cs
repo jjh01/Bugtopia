@@ -80,6 +80,10 @@ namespace HeartopiaMod
             // "Clean Without Delays" toggle (replaced the old 0-1s delay slider). Default true (no
             // delay = instant in-range sweep); old configs lacking the element keep this initializer.
             public bool seaCleanCleanNoDelay = true;
+            // Ocean Cleanup boss automation (CleanupBossFeature.cs). Off by default.
+            public bool cleanupBossAutoEnabled;
+            // Ocean Cleanup: no knockback from the boss explosion (CleanupBossFeature.cs). Off by default.
+            public bool cleanupNoBounceEnabled;
             // Aura Farm: auto-teleport to a cleansing coral area while the Corrupted debuff (610)
             // is active and hold until it clears. Default true; old configs keep the initializer.
             public bool autoCleanseCorruptedEnabled = true;
@@ -100,12 +104,6 @@ namespace HeartopiaMod
             public bool instantTeleportWaitFieldLoaded = true;
             // Little Whale figurine finder (daily photo hide-and-seek, MapDynamicResource 300023-33).
             public bool littleWhaleFinderEnabled;
-            // Sanrio gacha machine finder (event scene machines, MapDynamicResource 11305-07).
-            public bool sanrioGachaFinderEnabled;
-            // Sanrio finder daily-drop tracker (successes the mod observed; 06:00 game-day key).
-            public long sanrioDropDayStamp;
-            public int sanrioDropTotalToday;
-            public int sanrioDropSceneDoneMask;
             // Custom Swim Sprint (underwater dash SwimSprintConfig override). Duration 0/absent =
             // "use default 0.5s"; slider max (30) = Infinite. Cooldown 0 = instant re-dash.
             public bool swimSprintTweakEnabled;
@@ -126,6 +124,16 @@ namespace HeartopiaMod
             // GameUiTimingFieldNames (GameUiTimingsFeature.cs). Null/short/0 entries = game defaults.
             public bool gameUiTimingsEnabled;
             public float[] gameUiTimingSeconds;
+            // HUD minimap zoom (MiniMapZoomFeature.cs). Zooms are scale factors (>1 = closer); 0/absent
+            // = feature default. Reaction indexes MiniMapZoomReactionNames (0 Smooth, 1 Normal, 2 Fast).
+            public bool miniMapZoomEnabled;
+            public float miniMapZoomRest;
+            public bool miniMapAutoZoomEnabled;
+            public float miniMapZoomTop;
+            public int miniMapZoomReaction = 1;
+            // Look-ahead: arrow pushed off-centre while moving; amount = fraction of the circle radius.
+            public bool miniMapLookAheadEnabled;
+            public float miniMapLookAheadAmount;
             public int keyGameSpeed1x;
             public int keyGameSpeed2x;
             public int keyGameSpeed5x;
@@ -181,6 +189,11 @@ namespace HeartopiaMod
             public float farmWalkVehicleMinDistance;
             // Distance from the destination at which the driver gets out.
             public float farmWalkVehicleDismountDistance;
+            // Seconds walked on foot before the vehicle is summoned; 0 = at the start. -1 = absent.
+            public float farmWalkVehicleDelaySeconds = -1f;
+            public float farmWalkCornerReachFoot = -1f;      // -1 = absent; 0 is a real value
+            public float farmWalkCornerReachVehicle = -1f;
+            public float farmWalkCornerReachSwim = -1f;
             public float resourceAutoRepairPauseSeconds;
             public float gameSpeed;
             public bool fpsBypassEnabled;
@@ -230,6 +243,7 @@ namespace HeartopiaMod
             public bool quietCongratsPopups;
             public bool quietBpPayRewardPopup;
             public bool quietPetPhotoResultPopup;
+            public bool quietAnimalCardPopups;
             public bool emoteUnlockEnabled;
             public bool paintStyleUnlockEnabled;
             public bool furnitureDyePickerEnabled;
@@ -237,10 +251,12 @@ namespace HeartopiaMod
             public bool foragingAnimEnabled;
             public bool skipCraftDyeAnimations;
             public bool autoLearnRecipes;
+            public bool wildAnimalAutoClaimVisitGifts;
             public bool autoLikeOwnHome;
             public bool craftDirectSendEnabled;
             public bool interactObstacleBypassEnabled;
             public bool interactBuildModeBypassEnabled;
+            public bool petHeightLimitBypassEnabled;
             public bool persistentHudEnabled;
             // Self-tab bypass toggles. These were session-only until now even though their UI
             // handlers already called SaveKeybinds — the fields simply had no home in the config.

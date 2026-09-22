@@ -77,8 +77,10 @@ namespace Bugtopia.Launcher
                     greeted = true;
                     Log("ui ready");
 
+#if BUGTOPIA_ONLINE
                     // Started only now: the page exists, so the answer has somewhere to land.
                     _ = Task.Run(CheckForUpdate);
+#endif
                 }
 
                 using JsonDocument doc = JsonDocument.Parse(message);
@@ -105,9 +107,17 @@ namespace Bugtopia.Launcher
 
                 case "setPaths":
                     settings.GameFolder = Str(args, "game") ?? settings.GameFolder;
-                    settings.BepInExSource = Str(args, "source") ?? settings.BepInExSource;
+                    // A different folder picked here replaces whatever zip was unpacked, so the
+                    // remembered archive goes with it rather than naming a file nothing now uses.
+                    // The page sends the unchanged value on every other save, hence the comparison.
+                    string pickedSource = Str(args, "source");
+                    if (pickedSource != null &&
+                        !string.Equals(pickedSource, settings.BepInExSource, StringComparison.OrdinalIgnoreCase))
+                    {
+                        settings.BepInExArchive = null;
+                    }
+                    settings.BepInExSource = pickedSource ?? settings.BepInExSource;
                     settings.Storage = Str(args, "storage") ?? settings.Storage;
-                    settings.UnityLibsZip = Str(args, "unityLibsZip") ?? settings.UnityLibsZip;
                     SafeSave();
                     Reply(id, WriteState);
                     break;
@@ -139,8 +149,12 @@ namespace Bugtopia.Launcher
                     Reply(id, WriteState);
                     break;
 
-                case "logo":
-                    Reply(id, w => WriteValue(w, DataUri("logo.png", "image/png")));
+                case "setAutoLaunch":
+                    settings.AutoLaunch = args.ValueKind == JsonValueKind.Object &&
+                                          args.TryGetProperty("value", out JsonElement flag) &&
+                                          flag.ValueKind == JsonValueKind.True;
+                    SafeSave();
+                    Reply(id, WriteState);
                     break;
 
                 case "openUrl":
@@ -148,17 +162,18 @@ namespace Bugtopia.Launcher
                     Reply(id, w => WriteValue(w, null));
                     break;
 
-                // The page has drawn. Until this arrives the window is parked off-screen, so that
-                // nobody watches WebView2 start up in an empty black rectangle.
-                case "reveal":
-                    dialogs.Reveal();
-                    Reply(id, w => WriteValue(w, null));
+                case "copyText":
+                    bool copied = dialogs.CopyText(Str(args, "text"));
+                    Reply(id, w => w.WriteBooleanValue(copied));
                     break;
 
                 case "prepare":
                     RunJob(id, "Prepare", Prepare);
                     break;
 
+                // Online only. An offline page hides every control that sends these, and should one
+                // arrive anyway it is an unknown command.
+#if BUGTOPIA_ONLINE
                 case "downloadBepInEx":
                     RunJob(id, "Download BepInEx", DownloadBepInEx);
                     break;
@@ -188,9 +203,7 @@ namespace Bugtopia.Launcher
                     });
                     break;
 
-                case "downloadUnityLibs":
-                    RunJob(id, "Download Unity libraries", DownloadUnityLibs);
-                    break;
+#endif
 
                 case "generateInterop":
                     bool force = args.ValueKind == JsonValueKind.Object &&
@@ -216,9 +229,15 @@ namespace Bugtopia.Launcher
                     break;
 
                 case "profileCreate":
-                    Log(Profiles.Create(Str(args, "name")));
+                {
+                    string created = Str(args, "name");
+                    Log(Profiles.Create(created));
+                    // Selected the moment it exists, as picking a profile from the list is: creating one
+                    // and then finding the old one still active reads as the new one not having worked.
+                    Log(Profiles.Switch(created));
                     Reply(id, w => WriteProfiles(w, Profiles.List()));
                     break;
+                }
 
                 case "profileSwitch":
                     Log(Profiles.Switch(Str(args, "name")));
@@ -249,7 +268,7 @@ namespace Bugtopia.Launcher
         // Simple mode is sized to what it actually shows, and an online build shows one row more:
         // the mod it fetches rather than carries.
         internal static int WindowHeight(bool expert) =>
-            expert ? 760 : Downloads.PluginFromGitHub ? 660 : 580;
+            expert ? 760 : Downloads.PluginFromGitHub ? 690 : 610;
 
         /// <summary>Which view the window should open in, read before the window exists.</summary>
         internal bool Expert => settings.Expert;
@@ -312,8 +331,10 @@ namespace Bugtopia.Launcher
         private volatile Question asked;
         private int askCount;
 
+#if BUGTOPIA_ONLINE
         /// <summary>Releases the page has been shown, once someone asked for the list.</summary>
         private List<ModRelease> knownReleases = new List<ModRelease>();
+#endif
 
         /// <summary>
         /// Asks the page a yes-or-no and blocks the job until it answers.
@@ -385,6 +406,7 @@ namespace Bugtopia.Launcher
             string source = Require(settings.BepInExSource, "the unpacked BepInEx folder");
 
             Payload.Prepare(source, storage, CarriedFiles(), Log);
+            WriteCarriedStamp(storage);   // every carried file was just written by this launcher
             if (!string.IsNullOrWhiteSpace(settings.UnityLibsZip))
                 Payload.InstallUnityLibs(settings.UnityLibsZip, storage, Log);
 
@@ -407,10 +429,12 @@ namespace Bugtopia.Launcher
             Payload.ValidateSource(target, out string coreDir, out _);
 
             settings.BepInExSource = target;
+            settings.BepInExArchive = zipPath;
             SafeSave();
             Log("BepInEx " + (Payload.ReadBepInExVersion(coreDir) ?? "archive") + " is ready to install.");
         }
 
+#if BUGTOPIA_ONLINE
         private void DownloadBepInEx()
         {
             StorageLayout storage = RequireStorage();
@@ -420,6 +444,7 @@ namespace Bugtopia.Launcher
             Downloads.FetchBepInEx(target, Log, Progress("bepinex"));
 
             settings.BepInExSource = target;
+            settings.BepInExArchive = null;   // nothing the user picked, so nothing to name
             SafeSave();
         }
 
@@ -432,6 +457,7 @@ namespace Bugtopia.Launcher
 
             Downloads.FetchUnityLibraries(version, storage, Log, Progress("interop"));
         }
+#endif
 
         /// <summary>
         /// Marks one card as working on something with no number to show, and says what.
@@ -583,6 +609,18 @@ namespace Bugtopia.Launcher
                 PushState();
             }
 
+            // A prepared tree is never laid out again, so this is what brings a newer launcher's
+            // bootstrap - and, offline, its mod - into storage. Only when a different launcher ran here
+            // last, though: after that the installed files are left as they are, so a mod DLL replaced
+            // by hand stays replaced. Missing files are written either way. The record moves on only
+            // once every file is in: one the running game held open gets another try next launch.
+            string lastLauncher = ReadCarriedStamp(storage);
+            bool newLauncher = lastLauncher != LauncherIdentity;
+            if (newLauncher)
+                Log("Launcher " + (lastLauncher ?? "(none recorded)") + " -> " + LauncherIdentity + ": writing its files.");
+            if (Payload.RefreshCarried(storage, CarriedFiles(), Log, replaceExisting: newLauncher) && newLauncher)
+                WriteCarriedStamp(storage);
+
             EnsurePlugin(storage);
             PushState();
 
@@ -725,10 +763,9 @@ namespace Bugtopia.Launcher
         }
 
         /// <summary>
-        /// An unpacked BepInEx archive to lay the tree out from, fetched when the user has not
-        /// supplied one. No <see cref="Downloads.Enabled"/> guard: an offline build's download
-        /// throws before it touches anything, with the URL to fetch by hand — which is exactly the
-        /// message this case needs, and a guard here would only be unreachable code in one flavour.
+        /// An unpacked BepInEx archive to lay the tree out from. An online build fetches one when the
+        /// user has not supplied it; an offline build has no download code at all, and says where
+        /// to get the archive instead.
         /// </summary>
         private void EnsureBepInExSource(StorageLayout storage)
         {
@@ -746,7 +783,18 @@ namespace Bugtopia.Launcher
                 return;
             }
 
+#if BUGTOPIA_ONLINE
             DownloadBepInEx();
+#else
+            throw new InvalidOperationException(
+                "This build does not download anything. Fetch the BepInEx archive yourself and " +
+                "point the launcher at it:\n" +
+#if BUGTOPIA_NOLINK
+                Downloads.BepInExDescription);
+#else
+                Downloads.BepInExUrl);
+#endif
+#endif
         }
 
         /// <summary>Whether a folder passes the same rules <see cref="Prepare"/> will apply to it.</summary>
@@ -764,13 +812,14 @@ namespace Bugtopia.Launcher
         }
 
         /// <summary>
-        /// The mod itself. An offline build carries it and Prepare has already written it; an online
+        /// The mod itself. An offline build carries it and has already put that copy in place; an online
         /// build fetches it from its releases, where a missing plugin is simply what a fresh install
         /// looks like rather than something to fail over.
         /// </summary>
         private void EnsurePlugin(StorageLayout storage)
         {
-            string installed = GitHub.InstalledTag(storage);
+#if BUGTOPIA_ONLINE
+            string installed = GitHub.InstalledVersion(storage);
             bool missing = !File.Exists(storage.Plugin);
 
             // Asked here rather than trusting the background check to have finished. With the
@@ -782,9 +831,7 @@ namespace Bugtopia.Launcher
 
             bool outdated = !missing && ModUpdate(installed) != null;
 
-            // The constant is folded in with a runtime half on purpose: on its own it would make
-            // everything below unreachable code in the offline build.
-            if (!Downloads.PluginFromGitHub || !(missing || outdated))
+            if (!(missing || outdated))
                 return;
 
             if (missing)
@@ -806,6 +853,7 @@ namespace Bugtopia.Launcher
                 Log("Could not update the mod: " + ex.Message + " - starting with " +
                     (installed ?? "the installed build") + ".");
             }
+#endif
         }
 
         /// <summary>
@@ -816,15 +864,20 @@ namespace Bugtopia.Launcher
         /// </summary>
         private string ModUpdate(string installed)
         {
-            if (!Downloads.PluginFromGitHub || string.IsNullOrWhiteSpace(installed))
+#if BUGTOPIA_ONLINE
+            if (string.IsNullOrWhiteSpace(installed))
                 return null;
 
-            if (string.Equals(settings.PinnedMod, installed, StringComparison.OrdinalIgnoreCase))
+            if (GitHub.SameVersion(settings.PinnedMod, installed))
                 return null;
 
             return GitHub.IsNewer(settings.LatestSeen, installed) ? settings.LatestSeen : null;
+#else
+            return null;
+#endif
         }
 
+#if BUGTOPIA_ONLINE
         /// <summary>
         /// Fetches the release list and installs the newest build.
         ///
@@ -902,6 +955,7 @@ namespace Bugtopia.Launcher
                 return releases;
             }
         }
+#endif
 
         /// <summary>
         /// Puts the Unity base libraries in unity-libs before the generator looks for them.
@@ -923,13 +977,14 @@ namespace Bugtopia.Launcher
                 return;
             }
 
-            if (!Downloads.Enabled || GameSession.ReadUnityVersion(game) == null)
+#if BUGTOPIA_ONLINE
+            if (GameSession.ReadUnityVersion(game) != null)
             {
-                Log("No Unity base libraries yet; BepInEx will fetch them itself during generation.");
+                DownloadUnityLibs();
                 return;
             }
-
-            DownloadUnityLibs();
+#endif
+            Log("No Unity base libraries yet; BepInEx will fetch them itself during generation.");
         }
 
         /// <summary>
@@ -981,19 +1036,44 @@ namespace Bugtopia.Launcher
         }
 
         /// <summary>
-        /// An embedded file as a data URI, or null when this build does not carry it. Fetched by
-        /// the page rather than baked into it — see <c>PhotinoHost.LoadUi</c> for why the initial
-        /// page string has to stay small.
+        /// This launcher, as <see cref="StorageLayout.CarriedStamp"/> records it: version and commit,
+        /// and the flavour. The flavour is part of it because offline and offline-nolink of one version
+        /// carry different mods - moving between them has to swap the DLL, which the version alone
+        /// would not.
         /// </summary>
-        private static string DataUri(string resource, string mediaType)
-        {
-            using Stream stream = typeof(Api).Assembly.GetManifestResourceStream(resource);
-            if (stream == null)
-                return null;
+        private static string LauncherIdentity => HeartopiaMod.ModBuildVersion.Informational + " " + LauncherFlavour;
 
-            using var buffer = new MemoryStream();
-            stream.CopyTo(buffer);
-            return "data:" + mediaType + ";base64," + Convert.ToBase64String(buffer.ToArray());
+#if BUGTOPIA_ONLINE
+        private const string LauncherFlavour = "online";
+#elif BUGTOPIA_NOLINK
+        private const string LauncherFlavour = "offline-nolink";
+#else
+        private const string LauncherFlavour = "offline";
+#endif
+
+        private static string ReadCarriedStamp(StorageLayout storage)
+        {
+            try
+            {
+                return File.Exists(storage.CarriedStamp) ? File.ReadAllText(storage.CarriedStamp).Trim() : null;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return null;   // unreadable counts as unknown: the files are written, as for a new launcher
+            }
+        }
+
+        private void WriteCarriedStamp(StorageLayout storage)
+        {
+            try
+            {
+                Directory.CreateDirectory(storage.Bin);
+                File.WriteAllText(storage.CarriedStamp, LauncherIdentity + Environment.NewLine);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                Log("Could not record the launcher version in storage: " + ex.Message);
+            }
         }
 
         /// <summary>The files this exe carries, written into the storage tree by Prepare.</summary>
@@ -1015,6 +1095,7 @@ namespace Bugtopia.Launcher
 
         // ---- is there a newer launcher? --------------------------------------
 
+#if BUGTOPIA_ONLINE
         /// <summary>
         /// How long a recorded answer is trusted before asking again.
         ///
@@ -1038,12 +1119,10 @@ namespace Bugtopia.Launcher
         /// <param name="announce">Put a line in the log when this launcher itself is out of date.</param>
         private void RefreshLatestSeen(bool announce)
         {
-            // One condition rather than two: Downloads.Enabled is a compile-time constant, and on
-            // its own it would make everything below it unreachable code in the offline build.
             bool checkedRecently = settings.LastUpdateCheck.HasValue &&
                                    DateTime.UtcNow - settings.LastUpdateCheck.Value < UpdateCheckFloor;
 
-            if (!Downloads.Enabled || checkedRecently)
+            if (checkedRecently)
                 return;
 
             try
@@ -1075,6 +1154,7 @@ namespace Bugtopia.Launcher
             RefreshLatestSeen(announce: true);
             PushState();
         }
+#endif
 
         // ---- state -----------------------------------------------------------
 
@@ -1083,28 +1163,53 @@ namespace Bugtopia.Launcher
             w.WriteStartObject();
             w.WriteString("game", settings.GameFolder ?? "");
             w.WriteString("source", settings.BepInExSource ?? "");
+            // The file the user picked, for the simple screen, which has no path field: without it
+            // "an archive was chosen" and "nothing happened" look exactly alike, since UseArchive
+            // leaves BepInExSource pointing at the same unpack folder every time. Falls back to the
+            // source folder, which is what a Folder... pick and an older settings file leave behind.
+            w.WriteString("sourcePath",
+                string.IsNullOrWhiteSpace(settings.BepInExArchive)
+                    ? settings.BepInExSource ?? ""
+                    : settings.BepInExArchive);
             w.WriteString("storage", string.IsNullOrWhiteSpace(settings.Storage)
                 ? LauncherSettings.DefaultStorage
                 : settings.Storage);
-            w.WriteString("unityLibsZip", settings.UnityLibsZip ?? "");
             w.WriteString("defaultStorage", LauncherSettings.DefaultStorage);
             w.WriteString("version", HeartopiaMod.ModBuildVersion.Display);
+            // Both are online-only. Nothing in an offline build can learn about a newer one, and
+            // LatestSeen left in the settings file by an online build - the two share
+            // %LocalLow%\Bugtopia\launcher.json - must not resurrect the notice or its link.
+            // Written empty rather than omitted, so the page gets the same shape from both builds.
+#if BUGTOPIA_ONLINE
             w.WriteString("updateVersion",
                 GitHub.IsNewer(settings.LatestSeen, HeartopiaMod.ModBuildVersion.Numeric)
                     ? settings.LatestSeen
                     : "");
-            w.WriteBoolean("pluginFromGitHub", Downloads.PluginFromGitHub);
             w.WriteString("releasesPage", GitHub.ReleasesPage);
+#else
+            w.WriteString("updateVersion", "");
+            w.WriteString("releasesPage", "");
+#endif
+            w.WriteBoolean("pluginFromGitHub", Downloads.PluginFromGitHub);
             w.WriteBoolean("downloads", Downloads.Enabled);
             w.WriteBoolean("expert", settings.Expert);
+            w.WriteBoolean("autoLaunch", settings.AutoLaunch);
             w.WriteString("bepInExVersion", Downloads.BepInExVersion);
-            w.WriteString("bepInExUrl", Downloads.BepInExUrl);
+            w.WriteString("bepInExDescription", Downloads.BepInExDescription);
             w.WriteString("preparedFrom", settings.PreparedFrom ?? "");
 
             string game = settings.GameFolder;
             string unity = string.IsNullOrWhiteSpace(game) ? null : GameSession.ReadUnityVersion(game);
-            w.WriteString("unityVersion", unity ?? "");
-            w.WriteString("unityLibsUrl", Downloads.UnityLibrariesUrl(unity) ?? "");
+
+            // The build without links carries no address at all: the window describes the archive
+            // instead of linking it. Written empty rather than omitted, so the state has one shape.
+#if BUGTOPIA_NOLINK
+            w.WriteBoolean("noLink", true);
+            w.WriteString("bepInExUrl", "");
+#else
+            w.WriteBoolean("noLink", false);
+            w.WriteString("bepInExUrl", Downloads.BepInExUrl);
+#endif
             w.WriteBoolean("gameOk", !string.IsNullOrWhiteSpace(game) && Directory.Exists(game) && unity != null);
 
             bool prepared = false, hasInterop = false;
@@ -1121,13 +1226,18 @@ namespace Bugtopia.Launcher
             w.WriteBoolean("prepared", prepared);
             w.WriteBoolean("hasInterop", hasInterop);
             w.WriteBoolean("hasPlugin", storage != null && File.Exists(storage.Plugin));
-            string installedMod = storage == null ? null : GitHub.InstalledTag(storage);
-            w.WriteString("pluginVersion", installedMod ?? "");
+            string installedMod = storage == null ? null : GitHub.InstalledVersion(storage);
+            w.WriteString("pluginVersion", GitHub.DisplayVersion(installedMod) ?? "");
             w.WriteString("modUpdate", ModUpdate(installedMod) ?? "");
             w.WriteString("pinnedMod", settings.PinnedMod ?? "");
+            // Compared here, not on the page: a pinned tag reads "v2.8.3" and the DLL says
+            // "2.8.3+46f9cfb" - the same build, never the same string.
+            w.WriteBoolean("pluginPinned", GitHub.SameVersion(settings.PinnedMod, installedMod));
             w.WriteBoolean("interopStale", hasInterop && IsInteropStale(storage, game));
 
+            // Written empty offline, so the page gets the same shape from both builds.
             w.WriteStartArray("modReleases");
+#if BUGTOPIA_ONLINE
             foreach (ModRelease release in knownReleases)
             {
                 w.WriteStartObject();
@@ -1135,6 +1245,7 @@ namespace Bugtopia.Launcher
                 w.WriteString("asset", release.AssetName);
                 w.WriteEndObject();
             }
+#endif
             w.WriteEndArray();
 
             // An install already loading the mod. Reported in full rather than as a flag because the

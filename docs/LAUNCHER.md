@@ -53,12 +53,22 @@ One job, each step skipped when its result is already on disk:
    coexisting with it. A BepInEx tree is *moved* into storage, interop and all; MelonLoader is
    removed. Never without a modal yes.
 3. **Fetch BepInEx** (online build) or use the archive the user chose (offline build).
-4. **Lay out the storage tree** — see §5.
+4. **Lay out the storage tree** — see §5. After that, the files the launcher carries — the
+   bootstrap, the generator shim and, in the offline build, the mod — are rewritten only when a
+   different launcher ran here last: `bin\launcher.version` records the version, commit and flavour
+   (`3.0.5+c5ef461 offline-nolink`) of the one that last wrote them. A new launcher replaces every
+   file that differs and moves the record on; the same launcher writes only what is missing and
+   leaves the rest, so a mod DLL replaced by hand stays until the next launcher version (the log
+   says it was kept; deleting it brings the launcher's copy back). The flavour is in the record
+   because offline and offline-nolink of one version carry different mods. A file the running game
+   holds open is left as it is and logged, and the record then stays behind for another try.
 5. **Fetch or update the mod** (online build only; the offline build carries it). A newer
    release is installed on the way past — the mod and the launcher ship in the same release, so
-   the tag the daily update check already recorded answers this without another request. A
-   build chosen by hand in expert mode is pinned and left alone, and a failed update is logged
-   rather than fatal: the copy already installed works, and the game still starts.
+   the tag the update check already recorded, set against the version the installed DLL declares,
+   answers this without another request. The installed version is read out of the DLL, not out of
+   `bugtopia.version`: that file says what was last downloaded, not what is there now. A build
+   chosen by hand in expert mode is pinned and left alone, and a failed update is logged rather
+   than fatal: the copy already installed works, and the game still starts.
 6. **Put the Unity base libraries in `unity-libs`.**
 7. **Generate the interop assemblies** — see §4.
 8. **Start the game and inject the bootstrap.** The launcher closes itself on success.
@@ -99,7 +109,7 @@ runtime/
 │   └── unity-libs/
 ├── dotnet/            ← CoreCLR 6.0.7, copied from the archive
 ├── bin/               ← bugtopia_inject.dll, BugtopiaInterop.dll, logs
-├── native/            ← Photino.Native.dll (hashed folder), bugtopia.ico
+├── native/            ← only on installs older launchers made: their webview shell; safe to delete
 └── download/          ← unpacked BepInEx archive
 ```
 
@@ -119,6 +129,19 @@ accident and does not link the stack it would need to.
 | Network code | none in the binary | WinHTTP |
 | Size | ~7.9 MB | ~4.2 MB |
 
+"None in the binary" is enforced in the source rather than left to the trimmer: `WinHttp.cs`, the
+parts of `GitHub.cs` that talk to the API, the download half of `Downloads.cs`, and the update and
+download paths in `Api.cs` - with the window commands that start them - sit behind
+`#if BUGTOPIA_ONLINE`, which both `BugtopiaLaunch` and `BugtopiaLauncher` define for the online
+build. Runtime guards on `Downloads.Enabled` were not enough: those methods stayed reachable from
+the window commands and `Launch`, so NativeAOT compiled them into the offline exe and only the HTTP
+client itself was trimmed. The releases page URL goes with them: `GitHub.ReleasesPage` and the
+`updateVersion` / `releasesPage` fields of the window state are online-only, so a `LatestSeen` left
+behind by an online build - both read the same `%LocalLow%\Bugtopia\launcher.json` - cannot make an
+offline build show an update notice. To check a build, publish it with `-p:IlcGenerateMapFile=true`
+and look for `MethodCode` entries for `GitHub`, `Downloads` or `WinHttp` in the map, and for
+`baboodev/Bugtopia` in the exe's strings.
+
 They build into `bin\<flavour>\` and `obj\<flavour>\` so both exist at once. Two things that needs,
 both in `launcher/Directory.Build.props`: an explicit `DefaultItemExcludes` (the SDK excludes only
 the *current* flavour's obj from source globs, so the generated `AssemblyInfo` from both would be
@@ -133,11 +156,17 @@ nearest one).
 `IlcOptimizationPreference=Size`, `InvariantGlobalization`, and `EventSourceSupport`,
 `MetadataUpdaterSupport`, `HttpActivityPropagationSupport` all off.
 
-**UI.** Photino.NET 4.0.16 over Photino.Native 4.0.22 → WebView2, driven by plain P/Invoke. The
-WebView2 Runtime is the only thing the machine needs. The page is one embedded `ui.html`: HTML, CSS
-and vanilla JS, no framework and no web fonts (an offline build has to look the same with no
-network). Messages cross on `window.external.sendMessage` / `receiveMessage` as JSON; modals are the
-native `<dialog>` element.
+**UI.** A native Win32 window (`BugtopiaLauncher/Win32/`), nothing but P/Invoke: backgrounds, cards,
+icons and gradients drawn with GDI+, text with GDI (ClearType), buttons and the checkboxes as real
+owner-drawn `BUTTON` controls so Tab, Space, Enter, focus and screen readers work as they do anywhere,
+paths and the log in real read-only `EDIT` controls so they can be selected and copied. The selects
+open a list of their own, the question dialog is a window of its own, and the file and folder pickers
+are the system `IFileOpenDialog`, called through its vtable. The window talks to `Api` in JSON over
+the same commands and events the WebView2 page it replaced did - which is what let it be ported from
+that page's script function for function. It replaced Photino over WebView2 because Photino's native
+shell imports `URLDownloadToFileW` (to fetch the WebView2 installer) and WebView2 is a browser engine
+that goes to the network on its own; the exe now imports nothing network-related, and needs nothing
+installed on the machine.
 
 **Windows APIs.** Remote-thread injection through `kernel32` (`OpenProcess`, `VirtualAllocEx`,
 `WriteProcessMemory`, `CreateRemoteThread`); HTTPS through `winhttp.dll`; `SHGetKnownFolderPath` for
@@ -146,8 +175,8 @@ subclass rendezvous (`EnumWindows`, `GetClassNameW`, `SetWindowLongPtrW`, `CallW
 hosts CoreCLR with `coreclr_initialize` / `coreclr_create_delegate`.
 
 **Data.** `System.Text.Json` used reflection-free — `JsonDocument` and `Utf8JsonWriter`, plus a
-source-generated context for settings. Zip through `System.IO.Compression`. SHA-256 as the cache key
-for the unpacked native shell. INI (doorstop) and VDF (Steam) are hand-scanned.
+source-generated context for settings. Zip through `System.IO.Compression`. INI (doorstop) and VDF
+(Steam) are hand-scanned.
 
 **Deliberately absent.** `HttpClient`, which cost 3.5 MB of binary against WinHTTP's nothing;
 `System.Uri`, 65 KB to parse four known-good addresses; and `Regex`, 231 KB to read one version
@@ -173,7 +202,15 @@ pwsh launcher/build-launchers.ps1 -PluginDll C:\downloads\bugtopia-bepinex.dll
 
 # working on the launcher itself; the offline build then has no plugin in it
 pwsh launcher/build-launchers.ps1 -SkipMod
+
+# also the offline launcher carrying the BepInEx mod built without the Telegram link
+pwsh launcher/build-launchers.ps1 -NoLink
 ```
+
+`-NoLink` adds `Bugtopia-Launcher-<version>-offline-nolink.exe`: the offline build with the BepInEx
+mod compiled `-p:Telegram=false` inside it. It publishes into its own `bin\offline-nolink\`, and the
+script fails if that plugin still carries a Telegram trace - the check CI runs on the Universal
+no-link DLL. CI builds it on every tag and attaches it to the release.
 
 `ci/publish-launcher.ps1` is the publish half on its own — CI calls it directly, so a local build
 and a release build cannot drift apart. It refuses to publish when a payload file is missing or when
@@ -192,9 +229,7 @@ In a shell where its `vswhere` probe does not run, initialise `vcvars64.bat` fir
 `-p:IlcUseEnvironmentalTools=true`. Note that vcvars sets `Platform=x64`, which moves the output
 under `bin\<flavour>\x64\`. Both scripts already do this.
 
-**Always run the exe from `publish\`.** `bin\…\native\` holds the binary without its native shell,
-and a missing P/Invoke target under NativeAOT fail-fasts with `0xC0000409` instead of saying what is
-missing.
+**Run the exe from `publish\`** - that is the file the scripts ship.
 
 ---
 
@@ -202,12 +237,15 @@ missing.
 
 `.github/workflows/melonloader-releaseship.yml` runs on `v*` tags only and builds the mod first, so
 the offline launcher embeds `dist\bugtopia-bepinex.dll` — the exact file the release publishes, not
-a second copy built beside it. Both exes go into the artifacts and onto the release, named from the
-tag:
+a second copy built beside it. The offline-nolink launcher embeds `dist\bugtopia-bepinex-nolink.dll`,
+built with `-p:Telegram=false` and checked for Telegram traces like the Universal no-link DLL; that
+DLL itself goes into the artifacts but not onto the release. All three exes go into the artifacts
+and onto the release, named from the tag:
 
 ```
 Bugtopia-Launcher-2.8.3-offline.exe
 Bugtopia-Launcher-2.8.3-online.exe
+Bugtopia-Launcher-2.8.3-offline-nolink.exe
 ```
 
 ---
@@ -232,27 +270,36 @@ window opens still leaves an account of it.
 during `il2cpp_init`, before any injection, and the bootstrap then refuses to start a second
 runtime. This is what the adoption step exists to resolve.
 
-**The single file has to carry both native DLLs.** `Photino.Native.dll` imports
-`WebView2Loader.dll`, and the package ships them as two files. Carrying only the first produces a
-launcher that starts on a developer's machine — the Windows SDK leaves a copy of the second in
-`Windows Kits\Windows Performance Toolkit\`, which is on PATH — and dies with `0xC0000409`
-before its own log exists on every machine that does not. `NativeShell` loads the dependency first,
-by absolute path: unpacking it beside the shell is not enough, because Windows resolves a DLL's
-imports through the standard search order, which does not include the folder the DLL came from.
+**Moving a child control carries its old pixels with it.** `SetWindowPos` does not repaint a moved
+window: it copies what was on screen to the new place. A scroll moves the controls one after another,
+so a text box could pick up a piece of a button moved into its old place a moment before, and keep
+it - the box thinks the copied pixels are its own. Every move uses `SWP_NOCOPYBITS` (`SWP_MOVECHILD`
+in `Native.cs`) and every child has `WS_CLIPSIBLINGS`. Only a real screen capture of a paced scroll
+shows the fault; `PrintWindow` asks each window to draw itself afresh and never does.
 
-**The page's initial string must stay small.** Whatever is handed to `LoadRawString` goes to the
-native side at window creation, and a page carrying the logo as a data URI — 58 KB against 26 KB —
-access-violates inside `Photino.Native.dll` on **every** start. Anything large reaches the page over
-the message bridge after load instead.
+**Dark scrollbars, text boxes and menus are undocumented.** They come from `uxtheme.dll`'s ordinals
+133/135/136 (`AllowDarkModeForWindow`, `SetPreferredAppMode`, `FlushMenuThemes`) and the
+`DarkMode_Explorer` theme - what Explorer itself uses. They are looked up by ordinal with
+`GetProcAddress`, never imported, so a Windows without them keeps the light parts rather than
+failing to start.
 
-**Photino shows its window before WebView2 exists.** Measured: the window is up at ~80 ms and the
-page reports in at ~360 ms, much longer on a cold start, and for that gap Windows paints the class
-brush — black in dark mode. No hook runs early enough to prevent it: `WindowCreated` fires *after*
-the constructor has already shown the window. So the window is created at -32000,-32000 through
-Photino's own startup parameters and centred by `PhotinoHost.Reveal()` once the page says it has
-rendered. Off-screen rather than hidden, because a visible unowned window still gets a taskbar
-button, and that button is the only sign the launcher is starting at all. A five-second timeout
-reveals it regardless, so a page that never reports in cannot leave a launcher with no window.
+**No exception may leave a window procedure.** Under NativeAOT an exception unwinding back into
+user32 is a fail-fast with no log. `Surface.WindowProc` and the button subclass catch everything and
+report it through `Api`.
+
+**The window appears only once it has something to show.** It is created hidden and shown after the
+first state has been drawn, so there is no empty frame first; a five-second timer shows it
+regardless, so a state that never arrives cannot leave a launcher with no window. The auto-launch
+countdown starts only once the window is on screen.
+
+**The exe's version information is its own.** Left to itself, NativeAOT copies the Win32 resources
+out of the managed `Bugtopia.dll` the compiler produced, and the compiler writes that file's name
+into `InternalName` and `OriginalFilename` - so the published exe called itself `Bugtopia.dll`,
+which is also the name VirusTotal filed it under. `IlcGenerateWin32Resources` is off and
+`Bugtopia.rc` is linked in instead, with the version strings written into `launcher_version.h` at
+publish time by `CompileLauncherResources`. The exe's icon, manifest and version fields are changed
+there; `ApplicationIcon` in the csproj now reaches only the build-output apphost. The step needs
+`rc.exe`, which comes with the Windows SDK the C++ workload installs.
 
 **`UnityLogListening` must be off in `BepInEx.cfg`.** Left at its default, the chainloader installs a
 Unity log handler before any plugin loads, which pulls in Il2CppInterop's delegate support and

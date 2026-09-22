@@ -366,6 +366,7 @@
     <Compile Include="HeartopiaComplete.UguiBuildingContent.cs" />
     <Compile Include="HeartopiaComplete.UguiSelfContent.cs" />
     <Compile Include="HeartopiaComplete.UguiGameLodContent.cs" />
+    <Compile Include="HeartopiaComplete.UguiMiniMapContent.cs" />
     <Compile Include="HeartopiaComplete.UguiBagWarehouseContent.cs" />
     <Compile Include="HeartopiaComplete.UguiForagingContent.cs" />
     <Compile Include="HeartopiaComplete.UguiFishingContent.cs" />
@@ -426,6 +427,7 @@
     <Compile Include="HeartopiaComplete.GameWorldProbe.cs" />
     <Compile Include="InstantTeleportFeature.cs" />
     <Compile Include="InteractObstacleBypassFeature.cs" />
+    <Compile Include="PetHeightLimitBypassFeature.cs" />
     <Compile Include="HeartopiaComplete.Config.cs" />
     <Compile Include="HeartopiaComplete.Gui.cs" />
     <Compile Include="HeartopiaComplete.Player.cs" />
@@ -480,14 +482,15 @@
     <Compile Include="SwimSprintTweakFeature.cs" />
     <Compile Include="JumpTuningFeature.cs" />
     <Compile Include="GameUiTimingsFeature.cs" />
+    <Compile Include="MiniMapZoomFeature.cs" />
     <Compile Include="AutoIceSkatingFeature.cs" />
     <Compile Include="SnowSculptureFeature.cs" />
     <Compile Include="SandSculptureFeature.cs" />
     <Compile Include="SeaCleanQteFeature.cs" />
+    <Compile Include="CleanupBossFeature.cs" />
     <Compile Include="SeaCleanBannerHideFeature.cs" />
     <Compile Include="StealthForagingFeature.cs" />
     <Compile Include="LittleWhaleFinderFeature.cs" />
-    <Compile Include="SanrioGachaFinderFeature.cs" />
     <Compile Include="RoamingCollectableFinderFeature.cs" />
     <Compile Include="SwimSprintVerticalGuardFeature.cs" />
     <Compile Include="ChatForceTranslateFeature.cs" />
@@ -513,6 +516,7 @@
     <Compile Include="PicturesDecryptFeature.cs" />
     <Compile Include="WildAnimalFeedFeature.cs" />
     <Compile Include="WildAnimalGiftFeature.cs" />
+    <Compile Include="WildAnimalVisitGiftFeature.cs" />
     <Compile Include="WildAnimalRosterFeature.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PuzzleNetFeature.cs" />

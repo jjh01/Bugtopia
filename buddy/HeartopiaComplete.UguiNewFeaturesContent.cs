@@ -110,6 +110,7 @@ namespace HeartopiaMod
 
             // GIFTS card + its free-floating status line
             public GameObject GiftButton;         // busy-gated (independent coroutine/timer pair)
+            public Toggle AutoClaimVisitGiftsToggle;
             public GameObject GiftStatusLabel;
             public string GiftStatusShown;
 
@@ -259,20 +260,28 @@ namespace HeartopiaMod
 
             // -------- WILD ANIMAL GIFTS card (feed's source cursor returned 346, now 316 after
             // the troughs trim; h=74, gift :784-796) --------
+            // One checkbox row under the button (WildAnimalVisitGiftFeature.cs): the card grows by
+            // UguiAnimalCareGiftAutoRowHeight and everything below it moves down with it.
+            float giftExtra = UguiAnimalCareGiftAutoRowHeight;
             GameObject gifts = this.CreateUguiSettingsMainPanel(scrollContent, "GiftsPanel", this.L("WILD ANIMAL GIFTS"));
-            PlaceUguiTopLeft(gifts, 8f, 316f, panelW, 74f);
+            PlaceUguiTopLeft(gifts, 8f, 316f, panelW, 74f + giftExtra);
 
             handle.GiftButton = this.CreateUguiPrimaryButton(gifts.transform, "ClaimGiftsButton",
                 this.L("Claim All Wild Gifts"), new System.Action(this.OnUguiAnimalCareClaimGiftsClicked));
             PlaceUguiTopLeft(handle.GiftButton, 16f, 34f, 220f, 32f);
             this.SetUguiButtonInteractable(handle.GiftButton, !this.IsUguiAnimalCareGiftBusy());
 
+            handle.AutoClaimVisitGiftsToggle = this.CreateUguiCheckbox(gifts.transform, "AutoClaimVisitGifts",
+                this.L("Auto-claim visiting animal gifts"), this.wildAnimalAutoClaimVisitGifts,
+                new System.Action<bool>(this.OnUguiAnimalCareAutoClaimVisitGiftsToggled));
+            PlaceUguiTopLeft(handle.AutoClaimVisitGiftsToggle.gameObject, 16f, 74f, Mathf.Min(420f, panelW - 32f), 28f);
+
             // Gift status — same free-label placement (:801).
             handle.GiftStatusShown = this.wildAnimalGiftLastStatus ?? string.Empty;
             handle.GiftStatusLabel = this.CreateUguiLabel(scrollContent, "GiftStatus",
                 handle.GiftStatusShown, 11f, statusColor, false);
             this.TrySetUguiLabelWrapped(handle.GiftStatusLabel);
-            PlaceUguiTopLeft(handle.GiftStatusLabel, 8f, 400f, panelW, 36f);
+            PlaceUguiTopLeft(handle.GiftStatusLabel, 8f, 400f + giftExtra, panelW, 36f);
 
             // -------- ROSTER card (UGUI-only; rows are dynamic, see the file header) --------
             // Placed at 444 = gift status end (436) + the 8px gap this chain uses. Its height and
@@ -294,7 +303,9 @@ namespace HeartopiaMod
 
         // Content-space Y where the roster card starts (gift status ends at 436 + the chain's 8px
         // gap). Everything above it keeps the fixed positions documented in the file header.
-        private const float UguiAnimalCareRosterTopY = 444f;
+        // Pushed down by the auto-claim checkbox row the gifts card carries.
+        private const float UguiAnimalCareGiftAutoRowHeight = 42f;
+        private const float UguiAnimalCareRosterTopY = 444f + UguiAnimalCareGiftAutoRowHeight;
 
         private const float UguiAnimalCareRosterRowHeight = 42f;
         private const float UguiAnimalCareRosterRowsTopY = 34f;   // card-local, under the header
@@ -450,6 +461,10 @@ namespace HeartopiaMod
                 this.SyncUguiToggleFromField(handle.PreferFavoritesToggle, this.wildAnimalFeedPreferFavorites);
                 this.SyncUguiToggleFromField(handle.SkipFiveStarToggle, this.wildAnimalFeedSkipFiveStarFood);
                 this.SyncUguiToggleFromField(handle.SkipEggToggle, this.wildAnimalFeedSkipEgg);
+                if (handle.AutoClaimVisitGiftsToggle != null)
+                {
+                    this.SyncUguiToggleFromField(handle.AutoClaimVisitGiftsToggle, this.wildAnimalAutoClaimVisitGifts);
+                }
 
                 // Busy gates — the FULL live conditions recomputed EVERY gated frame (file
                 // header: coroutine refs and timers change from background activity; a disabled
@@ -516,6 +531,18 @@ namespace HeartopiaMod
         private void OnUguiAnimalCareClaimGiftsClicked()
         {
             this.StartWildAnimalClaimAllGifts(silent: false);
+        }
+
+        // WildAnimalVisitGiftFeature.cs — persisted, so it saves; switching it on runs a resolve
+        // that may have been skipped while nothing needed it.
+        private void OnUguiAnimalCareAutoClaimVisitGiftsToggled(bool value)
+        {
+            this.wildAnimalAutoClaimVisitGifts = value;
+            try { this.SaveKeybinds(false); } catch { }
+            if (value)
+            {
+                this.OnWildVisitGiftSurfaceEnabled();
+            }
         }
     }
 }

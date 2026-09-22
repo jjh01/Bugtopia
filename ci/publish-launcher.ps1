@@ -8,6 +8,10 @@
       offline  carries the mod and the bootstrap; downloads nothing, ever
       online   carries no mod at all and fetches the newest release from GitHub
 
+    Given -NoLinkPluginDll, a third one is published beside them:
+
+      offline-nolink  the offline build, carrying the BepInEx mod built without the Telegram link
+
     They are different assemblies, not one assembly with a switch, so both are published and both
     are kept. The output is two files and nothing else - no runtime beside them, no folder to
     unpack, which is the whole point of the NativeAOT build.
@@ -24,6 +28,11 @@
     same bugtopia-bepinex.dll the release ships, so the launcher carries the published file rather
     than a second copy built beside it.
 
+.PARAMETER NoLinkPluginDll
+    A BepInEx plugin built with -p:Telegram=false. Given one, the offline-nolink launcher is
+    published as well, into its own bin\offline-nolink\ and obj\offline-nolink\. There is no default:
+    that build shares an output folder with the regular one, so no fixed path can be trusted to hold it.
+
 .PARAMETER VersionLabel
     Names the output files with this instead of the version resource inside them. CI passes the tag,
     which drops the commit hash a release asset has no use for.
@@ -35,6 +44,7 @@
 param(
     [string]$OutputDirectory = "",
     [string]$PluginDll = "",
+    [string]$NoLinkPluginDll = "",
     [string]$VersionLabel = "",
     [switch]$SkipPayloadCheck
 )
@@ -61,6 +71,12 @@ $payload = @(
        How  = "dotnet build buddy -c ReleaseShip -p:Loader=BepInEx -p:ContinuousIntegrationBuild=true"
        Both = $false }   # offline only: the online build fetches this from GitHub
 )
+
+if ($NoLinkPluginDll) {
+    $payload += @{ Path = $NoLinkPluginDll
+                   How  = "dotnet build buddy -c ReleaseShip -p:Loader=BepInEx -p:Telegram=false -p:ContinuousIntegrationBuild=true"
+                   Both = $false }
+}
 
 $missing = @()
 foreach ($item in $payload) {
@@ -110,7 +126,7 @@ if (-not $vcvars) {
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 
 # Clear this script's own earlier output. The names carry a commit hash, so without this the folder
-# fills up with builds from other commits and stops saying which two are the release.
+# fills up with builds from other commits and stops saying which ones are the release.
 Get-ChildItem $OutputDirectory -Filter "Bugtopia-Launcher-*.exe" -ErrorAction SilentlyContinue |
     Remove-Item -Force
 
@@ -121,6 +137,12 @@ $flavours = @(
     @{ Name = "online";  Args = "-p:BugtopiaOnline=true" }
 )
 
+# The offline compile with a different plugin inside. Its own flavour name gives it its own bin\ and
+# obj\ (launcher/Directory.Build.props), so it never shares incremental state with the offline build.
+if ($NoLinkPluginDll) {
+    $flavours += @{ Name = "offline-nolink"; Args = "-p:BugtopiaFlavour=offline-nolink -p:PluginDllPath=`"$NoLinkPluginDll`"" }
+}
+
 $built = @()
 
 foreach ($flavour in $flavours) {
@@ -128,24 +150,25 @@ foreach ($flavour in $flavours) {
 
     # vcvars is quiet on success but still prints its own vswhere grumble; the exit code is what
     # decides here, so both streams go to nul.
+    $name = $flavour.Name
     $command = "`"$($vcvars.FullName)`" >nul 2>&1 && dotnet publish `"$project`" -c Release " +
                "-p:IlcUseEnvironmentalTools=true $($flavour.Args) --nologo -v minimal"
 
     $output = cmd /c $command
     if ($LASTEXITCODE -ne 0) {
         $output | Select-Object -Last 25 | ForEach-Object { Write-Host $_ }
-        throw "Publishing the $($flavour.Name) build failed."
+        throw "Publishing the $name build failed."
     }
 
     # vcvars sets Platform=x64, which moves the output under bin\<flavour>\x64\.
-    $exe = Get-ChildItem (Join-Path $repoRoot "launcher\BugtopiaLauncher\bin\$($flavour.Name)") `
+    $exe = Get-ChildItem (Join-Path $repoRoot "launcher\BugtopiaLauncher\bin\$name") `
                          -Recurse -Filter "Bugtopia.exe" -ErrorAction SilentlyContinue |
            Where-Object { $_.FullName -like "*\publish\*" } |
            Sort-Object LastWriteTime -Descending |
            Select-Object -First 1
 
     if (-not $exe) {
-        throw "The $($flavour.Name) publish produced no exe."
+        throw "The $name publish produced no exe."
     }
 
     # 2.8.2+57579db is the informational version; the plus is legal in a filename but awkward in a
@@ -154,11 +177,11 @@ foreach ($flavour in $flavours) {
     if ([string]::IsNullOrWhiteSpace($version)) { $version = "unversioned" }
     $version = $version.Replace("+", "-")
 
-    $target = Join-Path $OutputDirectory ("Bugtopia-Launcher-{0}-{1}.exe" -f $version, $flavour.Name)
+    $target = Join-Path $OutputDirectory ("Bugtopia-Launcher-{0}-{1}.exe" -f $version, $name)
     Copy-Item $exe.FullName $target -Force
 
     $built += [pscustomobject]@{
-        Flavour = $flavour.Name
+        Flavour = $name
         File    = Split-Path $target -Leaf
         MB      = [math]::Round($exe.Length / 1MB, 2)
         Bytes   = $exe.Length

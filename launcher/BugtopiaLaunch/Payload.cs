@@ -203,6 +203,132 @@ namespace Bugtopia.Launch
         }
 
         /// <summary>
+        /// Writes the carried files storage is missing, and - when <paramref name="replaceExisting"/>
+        /// - replaces the ones that differ. Returns false when a file could not be written.
+        ///
+        /// <see cref="Prepare"/> writes them once, when the tree is laid out, and a prepared tree is
+        /// never laid out again - so without this a newer launcher went on starting the bootstrap
+        /// and the mod an older one had left. The caller replaces only when a different launcher ran
+        /// here last (<see cref="StorageLayout.CarriedStamp"/>): replacing whatever differed on every
+        /// launch also undid a mod DLL put in place by hand, every time. Once a launcher has run, what
+        /// is installed is left alone, and a copy that no longer matches is logged as kept.
+        ///
+        /// A file the running game holds open cannot be replaced; that is logged and the installed
+        /// copy is used, as with a failed mod update. The bytes go to a side file first and are moved
+        /// over the old one, so a failed write never leaves half a DLL behind.
+        /// </summary>
+        public static bool RefreshCarried(StorageLayout storage, IEnumerable<PayloadFile> files,
+                                          Action<string> log = null, bool replaceExisting = true)
+        {
+            log ??= delegate { };
+            bool complete = true;
+
+            foreach (PayloadFile file in files ?? Array.Empty<PayloadFile>())
+            {
+                string target = Path.Combine(storage.Root, file.RelativePath);
+                string pending = target + ".new";
+
+                try
+                {
+                    bool existed = File.Exists(target);
+                    using (Stream carried = file.Open())
+                    {
+                        // Not carried by this build: the online one has no mod inside it.
+                        if (carried == null || (existed && SameContent(carried, target)))
+                            continue;
+                    }
+
+                    if (existed && !replaceExisting)
+                    {
+                        string kept = VersionOf(target);
+                        log("  kept " + file.RelativePath + (kept != null ? " (" + kept + ")" : "") +
+                            ": it differs from this launcher's copy, which already ran here - delete it " +
+                            "to have that copy written again");
+                        continue;
+                    }
+
+                    string before = existed ? VersionOf(target) : null;
+
+                    Directory.CreateDirectory(Path.GetDirectoryName(target));
+                    using (Stream source = file.Open())
+                    using (FileStream destination = File.Create(pending))
+                    {
+                        source.CopyTo(destination);
+                    }
+                    File.Move(pending, target, overwrite: true);
+
+                    string after = VersionOf(target);
+                    log("  " + (existed ? "replaced " : "written ") + file.RelativePath +
+                        (before != null && after != null ? ": " + before + " -> " + after
+                         : after != null ? ": " + after
+                         : ""));
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    TryDelete(pending);
+                    complete = false;
+                    log("  could not update " + file.RelativePath + " (" + ex.Message +
+                        ") - the installed copy stays");
+                }
+            }
+            return complete;
+        }
+
+        /// <summary>
+        /// The version a PE file declares - product version first, since that carries the commit -
+        /// or null when there is no file or it declares none.
+        /// </summary>
+        public static string VersionOf(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                    return null;
+
+                var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+                string version = !string.IsNullOrWhiteSpace(info.ProductVersion) ? info.ProductVersion : info.FileVersion;
+                return string.IsNullOrWhiteSpace(version) ? null : version.Trim();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static bool SameContent(Stream carried, string path)
+        {
+            using FileStream installed = File.OpenRead(path);
+            if (carried.CanSeek && carried.Length != installed.Length)
+                return false;
+
+            var a = new byte[81920];
+            var b = new byte[81920];
+            while (true)
+            {
+                int readA = carried.ReadAtLeast(a, a.Length, throwOnEndOfStream: false);
+                int readB = installed.ReadAtLeast(b, b.Length, throwOnEndOfStream: false);
+                if (readA != readB)
+                    return false;
+                if (readA == 0)
+                    return true;
+                if (!a.AsSpan(0, readA).SequenceEqual(b.AsSpan(0, readB)))
+                    return false;
+            }
+        }
+
+        private static void TryDelete(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
         /// Copies a directory's files, skipping the XML documentation that ships beside BepInEx's
         /// assemblies — nothing reads it at runtime and it is four files of pure noise in the tree.
         /// </summary>

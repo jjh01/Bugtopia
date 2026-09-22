@@ -58,6 +58,15 @@ steering. **[M]**
 stops at a **stand-off**, not on top of the node: driving in to 0.25 m made the last metre the
 expensive part of every walk. **[M]**
 
+**0.4-poop** A dog dropping the poop scan can see (`PetPoopFeature.cs`) is **always the next
+target**, ahead of every priority row and without a switch of its own (owner's call, 2026-09-12): it
+is worth more than any bush and it expires. It is a `node:poop` walk with dwell label `Dog Poop`;
+the dwell is judged by the dropping's **netId leaving the scan**, never by a marker or a
+`CollectColdEvent` (a pickable has neither), capped at 25 s for the server's 8-15 s grace. A dropping
+the router cannot reach, or one still there after the cap, is **parked for 5 minutes, never warped
+to** — 0.2a's emergency exit is for the ONLY target, and a dropping is never that. The pickup itself
+is the feature's 2 m send loop, which runs whenever the foraging farm or Aura Farm is on. **[M]**
+
 **0.4a** The stand-off is **per resource kind and learned, not assumed**. It starts at **1.1 m**.
 Measured 2026-08-22: Raspberry, Ore, Stone and Mandarin Tree all collected from ~1.05 m while a
 Button mushroom at 1.03 m did not — so there is no single right number, and nothing is assumed about
@@ -448,6 +457,20 @@ even once. **[M]**
 
 **4.10** **[?]** One depth hold moves about 0.72 m — more than the deadband. Near the last metre the
 controller never settles and oscillates. Not fixed.
+
+**4.11** ⭐ **The Ocean Cleanup safe-zone dash swims straight, always** — label `cleanupboss:safezone`
+takes `corners = [target]` with no sweep and no graph, on the first build and on every re-path. The
+countdown is 8 s and the bubble sits 8–23 m away; a graph detour or a blocked-sweep refusal costs the
+bubble, and the explosion then throws the player across the arena. Four fights, twelve dashes: the
+eleven straight ones reached the bubble with 2.2–5.2 s to spare; the one the sweep refused (the line
+ran 1.2 m from the boss centre, 01:16:41) went to the graph, which led 20 m the wrong way, and the
+bubble was missed. **The boss on the line is not an obstacle.** Every dash in the recorder
+(2026-09-15 manual, 2026-09-16 automatic) whose straight line ran 0.2-4.9 m from the boss centre
+reached the bubble — twelve of them, e.g. 1.3 m → 1.7 m from the centre at the explosion, 0.2 m →
+fine. Its collider only fools the sweep, which is exactly why the sweep is bypassed here. A one-bend
+detour round the boss was tried on 2026-09-16 and removed the same night: the bend point got its
+height re-anchored onto a pollutant 5 m up (the walker's live-entity height refine, now skipped for
+`cleanupboss:*` walks) and the leg cost 4.7 of the 8 s. **[M]**
 
 ---
 

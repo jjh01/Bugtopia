@@ -52,6 +52,15 @@ namespace HeartopiaMod
         private float buildingMovePanelObjYaw;
         private bool buildingMovePanelHasPos;
 
+        // Typed-coordinate editor on the move panel: while one of its fields has keyboard focus the
+        // game's key listeners are muted through MonoInputManager.DisableInput (refcounted — every
+        // disable is balanced by exactly one enable), so digits / Enter / Esc / Delete typed into
+        // the field never reach the build UI's shortcuts. Held a short grace after focus ends so
+        // the Enter/Esc that closed the field is swallowed too.
+        private bool buildingCoordEditInputDisabled;
+        private float buildingCoordEditInputReleaseAt;
+        private const float BuildingCoordEditInputGrace = 0.3f;
+
         // Free-snap toggles. While on + an object focused, the focused BuildComponent's snap config
         // is overridden to the finest step: angle = _buildBoxData.putDatas[0].rotateAngle (the 45/90
         // step source, used by interactive rotate, alignment, and confirm-ReducePrecision), grid =
@@ -227,7 +236,7 @@ namespace HeartopiaMod
         private void ProcessGodCameraMoveOnUpdate()
         {
             // "Menu open" = any MODAL registry surface (the UGUI shell) — showMenu is retired.
-            if (this.IsAnyModalInputSurfaceOpen())
+            if (this.IsAnyModalInputSurfaceOpen() || this.IsGameTextInputFocused())
             {
                 return;
             }
@@ -393,7 +402,10 @@ namespace HeartopiaMod
             else
             {
                 this.buildingMovePanelHasPos = false;
-                this.ResetBuildingAxisSliders(); // focus ended → next object starts fresh
+                if (!active)
+                {
+                    this.ResetBuildingAxisSliders(); // focus ended → next object starts fresh
+                }
             }
         }
 
@@ -405,7 +417,7 @@ namespace HeartopiaMod
             pos = Vector3.zero;
             yaw = 0f;
 
-            if (!this.TryGetBuildingFocusedElementQuiet(out IntPtr elementObj) || elementObj == IntPtr.Zero)
+            if (!this.TryGetBuildingFocusedAnchorElementQuiet(out IntPtr elementObj) || elementObj == IntPtr.Zero)
             {
                 return false;
             }
@@ -485,12 +497,162 @@ namespace HeartopiaMod
             }
         }
 
+        // Place the focused object (or multi-selection anchor) at typed field-local coordinates.
+        // `moveTo` = null keeps the position; `yawDelta` rotates around the field-local up axis.
+        // GodControl holds the target pose (_dstPosition, _dstRotation) and the entity rides it at a
+        // fixed offset, so the entity's current world offset from _dstPosition — turned by the same
+        // yaw delta — tells where _dstPosition must go for the ENTITY to land on the target. That
+        // keeps a combined move + turn exact for off-centre pivots and for the group anchor.
+        // Assumes the object is at rest (the focus tick has caught up with _dstPosition).
+        private unsafe bool TryPlaceFocusedAtLocal(Vector3? moveTo, float yawDelta)
+        {
+            bool turn = Mathf.Abs(yawDelta) > 0.01f;
+            if (moveTo == null && !turn)
+            {
+                return false;
+            }
+            if (auraMonoObjectGetClass == null || auraMonoClassGetFieldFromName == null
+                || auraMonoFieldGetValue == null || auraMonoFieldSetValue == null)
+            {
+                this.BuildingLog("place: AuraMono not ready");
+                return false;
+            }
+            if (!this.TryGetPadBuildAuraModule(out IntPtr moduleObj) || moduleObj == IntPtr.Zero
+                || !(this.TryGetMonoBoolMember(moduleObj, "InGodMode", out bool inGod) && inGod))
+            {
+                this.BuildingLog("place: not god mode");
+                return false;
+            }
+            if (!this.TryInvokeAuraMonoZeroArg(moduleObj, out IntPtr godCtrl, "get_GodControl") || godCtrl == IntPtr.Zero)
+            {
+                this.BuildingLog("place: GodControl unavailable");
+                return false;
+            }
+            if (!this.TryGetBuildingFocusedAnchorElementQuiet(out IntPtr element) || element == IntPtr.Zero)
+            {
+                this.BuildingLog("place: no focused object");
+                return false;
+            }
+            IntPtr entity;
+            if ((!this.TryGetMonoObjectMember(element, "entity", out entity) || entity == IntPtr.Zero)
+                && (!this.TryInvokeAuraMonoZeroArg(element, out entity, "get_entity") || entity == IntPtr.Zero))
+            {
+                this.BuildingLog("place: focused entity unavailable");
+                return false;
+            }
+            if (!this.TryReadBuildingVector3Prop(entity, "position", out Vector3 entityWorld)
+                || !this.TryReadBuildingVector3Prop(entity, "localPosition", out Vector3 entityLocal)
+                || !this.TryReadBuildingQuaternionProp(entity, "rotation", out Quaternion worldRot)
+                || !this.TryReadBuildingQuaternionProp(entity, "localRotation", out Quaternion localRot))
+            {
+                this.BuildingLog("place: focused transform unreadable");
+                return false;
+            }
+            Quaternion rootRot = worldRot * Quaternion.Inverse(localRot);
+            Quaternion turnRot = Quaternion.AngleAxis(yawDelta, rootRot * Vector3.up);
+
+            try
+            {
+                IntPtr cls = auraMonoObjectGetClass(godCtrl);
+                IntPtr dstPosField = auraMonoClassGetFieldFromName(cls, "_dstPosition");
+                IntPtr dstRotField = auraMonoClassGetFieldFromName(cls, "_dstRotation");
+                if (dstPosField == IntPtr.Zero || dstRotField == IntPtr.Zero)
+                {
+                    this.BuildingLog("place: _dstPosition/_dstRotation field not found");
+                    return false;
+                }
+
+                if (moveTo != null)
+                {
+                    Vector3 dstPos = default(Vector3);
+                    auraMonoFieldGetValue(godCtrl, dstPosField, (IntPtr)(&dstPos));
+                    Vector3 targetWorld = entityWorld + rootRot * (moveTo.Value - entityLocal);
+                    Vector3 newDst = targetWorld - turnRot * (entityWorld - dstPos);
+                    Vector3 worldDelta = newDst - dstPos;
+                    auraMonoFieldSetValue(godCtrl, dstPosField, (IntPtr)(&newDst));
+                    this.TryNudgeMonoVector3Field(godCtrl, cls, "_rotatePosition", worldDelta); // keep rotate pivot aligned
+                }
+                if (turn)
+                {
+                    Quaternion q = Quaternion.identity;
+                    auraMonoFieldGetValue(godCtrl, dstRotField, (IntPtr)(&q));
+                    q = turnRot * q;
+                    auraMonoFieldSetValue(godCtrl, dstRotField, (IntPtr)(&q));
+                }
+                this.BuildingLog("place: local " + entityLocal + " -> "
+                    + (moveTo != null ? moveTo.Value.ToString() : "(keep)") + ", yaw += " + yawDelta + "°");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                this.BuildingLog("place exception: " + ex.Message);
+                return false;
+            }
+        }
+
+        // Game key listeners muted while the coordinate editor types: Jump, the interaction verbs
+        // (FixedInteraction*/Interaction* can sit on digit keys), Elevate, and every raw Key* event
+        // KeyA..KeyOem5 (ScriptsRefactory.BaseService.Input.InputEvent). Move/Zoom/mouse stay live.
+        private static readonly int[] BuildingCoordEditMutedInputEvents = BuildBuildingCoordEditMutedInputEvents();
+
+        private static int[] BuildBuildingCoordEditMutedInputEvents()
+        {
+            System.Collections.Generic.List<int> list = new System.Collections.Generic.List<int>();
+            list.Add(1);                                  // Jump
+            for (int e = 3; e <= 11; e++) list.Add(e);    // MainInteraction .. FixedInteraction5
+            list.Add(19);                                 // Elevate
+            for (int e = 21; e <= 132; e++) list.Add(e);  // KeyA .. KeyOem5
+            for (int e = 151; e <= 154; e++) list.Add(e); // Interaction1 .. Interaction4
+            return list.ToArray();
+        }
+
+        // Called every frame by the move panel with "one of my fields has focus". Mutes on the
+        // rising edge, unmutes once the grace after the last focused frame has run out. Also called
+        // with false when the panel hides, so a closed panel can never leave the game muted.
+        private void UpdateBuildingCoordEditInputGuard(bool typing)
+        {
+            float now = Time.unscaledTime;
+            if (typing)
+            {
+                this.buildingCoordEditInputReleaseAt = now + BuildingCoordEditInputGrace;
+            }
+            bool want = typing || now < this.buildingCoordEditInputReleaseAt;
+            if (want == this.buildingCoordEditInputDisabled)
+            {
+                return;
+            }
+
+            int[] events = BuildingCoordEditMutedInputEvents;
+            if (want)
+            {
+                // The first call proves the input manager is reachable; only then commit to the
+                // whole set, so a half-applied disable can't leave the refcounts unbalanced.
+                if (!this.TrySetMonoInputDisabled(events[0], true))
+                {
+                    return; // retry next frame
+                }
+                for (int i = 1; i < events.Length; i++)
+                {
+                    this.TrySetMonoInputDisabled(events[i], true);
+                }
+                this.buildingCoordEditInputDisabled = true;
+            }
+            else
+            {
+                for (int i = 0; i < events.Length; i++)
+                {
+                    this.TrySetMonoInputDisabled(events[i], false);
+                }
+                this.buildingCoordEditInputDisabled = false;
+            }
+        }
+
         // Field-root world rotation = focused entity's worldRot * inverse(localRot). Maps the field's
         // local axes (panel-coordinate frame) to world, so a per-axis slider moves the right axis.
         private bool TryGetFocusedFieldRootRotation(out Quaternion rootRot)
         {
             rootRot = Quaternion.identity;
-            if (!this.TryGetBuildingFocusedElementQuiet(out IntPtr element) || element == IntPtr.Zero)
+            if (!this.TryGetBuildingFocusedAnchorElementQuiet(out IntPtr element) || element == IntPtr.Zero)
             {
                 return false;
             }
@@ -872,6 +1034,47 @@ namespace HeartopiaMod
             }
             if ((!this.TryGetMonoObjectMember(buildObj, "element", out elementObj) || elementObj == IntPtr.Zero)
                 && (!this.TryInvokeAuraMonoZeroArg(buildObj, out elementObj, "get_Element", "get_element") || elementObj == IntPtr.Zero))
+            {
+                elementObj = IntPtr.Zero;
+                return false;
+            }
+            return true;
+        }
+
+        // Like TryGetBuildingFocusedElementQuiet, but also resolves a multi-selection. With "move all"
+        // the craft box holds a BuildGroup, which has no `element` — only `Singles` (BuildSingle[]).
+        // Every single's element root stays in the field-local frame (BuildSingle.UpdateMatrix →
+        // SetRootMatrix(worldToLocal * m)), so Singles[0] works as the anchor for the coordinate
+        // readout and the field-root rotation. Kept separate so free-angle/free-grid still only touch
+        // a single focused object.
+        private bool TryGetBuildingFocusedAnchorElementQuiet(out IntPtr elementObj)
+        {
+            if (this.TryGetBuildingFocusedElementQuiet(out elementObj) && elementObj != IntPtr.Zero)
+            {
+                return true;
+            }
+            elementObj = IntPtr.Zero;
+            if (auraMonoArrayLength == null || auraMonoArrayAddrWithSize == null
+                || !this.TryGetPadBuildAuraModule(out IntPtr moduleObj)
+                || !this.TryInvokeAuraMonoZeroArg(moduleObj, out IntPtr craftBoxObj, "GetCraftBox") || craftBoxObj == IntPtr.Zero)
+            {
+                return false;
+            }
+            IntPtr buildObj;
+            if ((!this.TryInvokeAuraMonoZeroArg(craftBoxObj, out buildObj, "get_buildObject") || buildObj == IntPtr.Zero)
+                && (!this.TryGetMonoObjectMember(craftBoxObj, "buildObject", out buildObj) || buildObj == IntPtr.Zero))
+            {
+                return false;
+            }
+            if (!this.TryGetMonoObjectMember(buildObj, "Singles", out IntPtr singlesArr) || singlesArr == IntPtr.Zero
+                || auraMonoArrayLength(singlesArr).ToUInt64() == 0UL)
+            {
+                return false;
+            }
+            IntPtr slot = auraMonoArrayAddrWithSize(singlesArr, IntPtr.Size, UIntPtr.Zero);
+            IntPtr single = slot != IntPtr.Zero ? Marshal.ReadIntPtr(slot) : IntPtr.Zero;
+            if (single == IntPtr.Zero
+                || !this.TryGetMonoObjectMember(single, "element", out elementObj) || elementObj == IntPtr.Zero)
             {
                 elementObj = IntPtr.Zero;
                 return false;

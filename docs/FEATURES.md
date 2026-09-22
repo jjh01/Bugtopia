@@ -62,7 +62,7 @@ Tab index **1** is unused in the main tab bar (historical gap).
 | Homeland Farm | Crop-box farming: auto farm, water/weed/harvest/sow/fertilize in radius, seed/fertilizer selection |
 | Pictures | Decrypt / re-encrypt `ScreenCapture` cache (Photo, Draw, …). Draw files get a color preview via game `ColorLut`; index maps kept in `Draw/.index/` |
 | Extras | Ice skating: network "Perfect Ice Skating" sequences (`IceSkatingSequenceFeature`) + real-time **Auto Ice Skating** bot (`AutoIceSkatingFeature`) |
-| Extra | Open Craft panel; **Clear Missed Calls** — empty the watch's missed-call list (`ClearMissedCallsFeature`); **Analog Move** gamepad-stick → character bridge (`MovementInputFeature`); **Carpet Stamp** — scan party carpets + send a single step-on/step-off (`CarpetStampFeature`); **Sanrio Gacha Finder** — locate SANRIO event gacha machines (3 Star Town scene machines + player-placed ones via UGC actor scan), auto map pins + teleport (`SanrioGachaFinderFeature`) |
+| Extra | Open Craft panel; **Clear Missed Calls** — empty the watch's missed-call list (`ClearMissedCallsFeature`); **Analog Move** gamepad-stick → character bridge (`MovementInputFeature`); **Carpet Stamp** — scan party carpets + send a single step-on/step-off (`CarpetStampFeature`) |
 | Sand Sculpture | Fully-automatic beach sand-sculpting: auto-place base + auto-sculpt correct model + auto-collect (`SandSculptureFeature`) |
 
 Inventory scan / sort / filter rules for these (and Auto Sell, Bag transfer, pets): **[BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md)**.
@@ -343,6 +343,16 @@ Implementation is a three-tier `BuildModule` resolution (managed → AuraMono `M
   toggle arms it independently. `IsBuildInBuilding` also clears a stale build-mode flag of your own
   (`CharacterProtocolManager.PostBuildMode(false, 4)`) — the original still runs through the
   trampoline, so that self-heal is kept.
+- **Third toggle — Pet cats and dogs from any height** (`PetHeightLimitBypassFeature.cs`, default
+  off). Removes **"Too far to interact."** = `InteractErrorCode.BeyondHeightLimit` (11041). Despite the
+  wording it is a *vertical* test: `AnimalComponent.CheckHigh` →
+  `|player.y − pet.y| > PetConfig.interactHeightLimit`, with the config taken from
+  `LevelScriptableConfig.Instance.catConfig` / `.dogConfig`. Producers: `PetTouchUtil.IsExecutable`
+  (petting) and `FeedPetCommand.IsExecutable` (feeding / "Here we go"). Lever is a **data write**, not
+  a detour: `interactHeightLimit` is raised to 10000 on both configs from the world-ready gate
+  (originals captured first, restored when the toggle goes off). A code-rewrite detour would be wrong
+  here, because `FeedPetCommand` tests height *before* busy, so rewriting 11041 → 0 would also skip the
+  busy test. Client gate only: the pet RPC still goes to the server.
 - Live status shows how many blocks were cleared this session; `[InteractObstacle]` verbose logging
   is a Settings → Logging row.
 - Persisted; default off. Source: `buddy/InteractObstacleBypassFeature.cs`.
@@ -699,6 +709,22 @@ its own switch and its own hook latch. Chain: `MailSyncSystem` (`WorldSystem.Sho
 `AlertBPPayRewardPanel.Open`. Hooked at the lower, terminal channel for the same reason
 `AlertRewardsEvent` is preferred over `AlertRewardEvent`. payloadBytes 0.
 
+**Separate toggle: "Hide animal cards"** (`quietAnimalCardPopups`, own latch, two hook slots).
+Two wild-animal cards, both display-only with a single `UIEventBridge` listener whose handler is a
+bare `Panel.Open`:
+
+- **Bond Level Up** — `AnimalModule.OnWildAnimalFavoriteLvChanged` →
+  **`XDTGameSystem.UI.WildAnimalLevelUpEvent`** `{AnimalGroup group}` →
+  `UIEventBridge.OnWildAnimalLevelUp` → `AnimalLevelUpPanel.Open`. A full-width card ("Tap empty
+  area to close") that sits there until it is tapped — the one the visiting-gift auto-claim keeps
+  raising. payloadBytes 4 (the group, traced only).
+- **An animal came to visit** — `AnimalModule.OnWildAnimalVisitEventChanged` →
+  **`XDTGameSystem.UI.WildAnimalVisitNotifyEvent`** → `UIEventBridge.OnWildAnimalVisit` →
+  `AnimalArrivedTipPanel.Open`. payloadBytes 0 (group + bool, Mono picks the layout).
+
+Bond level and visit state are server-side and already updated when the dispatch happens, so
+swallowing it removes the card and nothing else. Default **Off**.
+
 ### Game UI — Custom UI Timings (Self → Game UI sub-tab)
 
 - Editable display durations for the game's tip/toast popups: item-obtained bubbles
@@ -709,6 +735,36 @@ its own switch and its own hook latch. Chain: `MailSyncSystem` (`WorldSystem.Sho
 - Originals captured before the first write; disabling the toggle restores them.
 - Sliders 0.5–15 s + "Reset to game defaults" button; persisted in config
   (`gameUiTimingsEnabled` / `gameUiTimingSeconds`). Implementation: `GameUiTimingsFeature.cs`.
+
+### Minimap Zoom (Self → Minimap sub-tab)
+
+- Scales the HUD minimap: **Zoom** 0.5×–3× (above 1× = closer). Applies to both minimaps — the
+  normal `StatusPanel` one and the `VehicleStatusPanel` one shown while riding.
+- **Auto-zoom by speed**: 0 m/s → "Zoom at rest", the current car's `RunForwardMaxSpeed`
+  (8 m/s on foot) → "Zoom at top speed" (0.3×–1.5×), log-interpolated. **Reaction**
+  Smooth / Normal / Fast sets how fast it zooms out when speeding up, how slowly it zooms back
+  in, and how long a slowdown is ignored first.
+- Speed: on foot / swimming / skating `MovementComponent._realSpeed`; driving the vehicle
+  controller's `moveSpeed`; as a passenger (`VehicleLocomotionRemote`, whose `currSpeed` only
+  mirrors network messages and sticks) the visible minimap's own offset delta.
+- How: `maproot@t` scaled by k, the spot layer `map_sketch@t` scaled 0.55k with its offset
+  rewritten every frame after `CommonMapBar.TriggerByMe`, spot icons counter-scaled to keep their
+  size, and `MiniMapSystem.distance`/`trackDistance` divided by k so spots stay inside the circle.
+  `MapSystem.MapRatio` is not touched (the big map shares it). Client-only UI; nothing is sent.
+- **Look-ahead while moving** (10–60 % of the radius, on the same speed scale as the zoom curve, so
+  running offsets about half as far as a car at full speed): the arrow moves
+  off-centre so more map shows ahead — straight down the screen with the game's rotating-map
+  setting, behind the heading with north-up. Arrow, `maproot@t` and the spot layer get the same
+  offset. The spot cut-off centre (`DefaultModule._playerMapPos`) cannot be moved (the game
+  rewrites it before the spots tick), so while look-ahead is on `trackDistance` is unbounded,
+  `distance` reaches the far edge ahead, and the mod applies the vanilla rule itself against the
+  shifted circle: an icon whose centre is outside is put on the rim along the ray from the arrow
+  if it is a tracked pin / notification, hidden otherwise. Tracked icons are recognised by matching
+  positions against `MiniMapSystem.GetMiniMapSpots()` (`isTrackedPoint || isNotification`, every
+  0.5 s). Icons may overhang the rim exactly as in vanilla (no mask).
+- Disabling restores the vanilla scales, positions and the original distances. Persisted as
+  `miniMapZoomEnabled` / `miniMapZoomRest` / `miniMapAutoZoomEnabled` / `miniMapZoomTop` /
+  `miniMapZoomReaction` / `miniMapLookAheadEnabled` / `miniMapLookAheadAmount`. Implementation: `MiniMapZoomFeature.cs` (+ `HeartopiaComplete.UguiMiniMapContent.cs`).
 
 ### Game LOD — World Detail / Draw Distance (Self → Game LOD sub-tab)
 
@@ -1319,7 +1375,7 @@ See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
 
 **Dog poop pickup (`PetPoopFeature.cs`) — part of Aura Farm, no switch of its own**
 
-- Active whenever **Aura Farm** is running (Resource Gathering → Aura Farm): the aura already means
+- Active whenever **Aura Farm** or the **foraging farm** is running: the aura already means
   "collect everything in reach", so droppings ride along. Pickup radius is fixed at **2 m**: the
   server only honours `Pickup` right next to the dropping (user-measured; a wider radius just burns
   the send budget).
@@ -1349,6 +1405,11 @@ See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
   pickable (`AllowedNetId`) — six refused sends and the netId is left alone, with a `[PetPoop]` log line.
 - No targeted event exists for "a pickable appeared" (`DataCreated<T>` is a nested generic,
   `EntityCreateEvent` fires for everything) — hence the throttled scan.
+- **Walk to Nodes targets droppings first.** A dropping the scan can see is always the walker's next
+  target — ahead of every priority row, with no switch of its own (`node:poop`, dwell label `Dog
+  Poop`). The dwell ends when the dropping's netId leaves the scan (25 s cap for the server's 8-15 s
+  grace); an unreachable or stubborn dropping is parked for 5 minutes and never teleported to. See
+  [WALK_TO_NODES_RULES.md](./WALK_TO_NODES_RULES.md) 0.4-poop and [FARM_WALK_TO_NODE.md](./FARM_WALK_TO_NODE.md) §7b.
 - Same scan feeds the **Radar → Misc → Dog Poop** category (below).
 
 **My Pets (per-pet Play / Wash)**
@@ -1382,6 +1443,14 @@ See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
   is remembered for the session and its marker ignores the Max-distance slider, so walking away
   does not hide it. One "located" toast per world session. Range cannot be extended — see
   [DECOMPILED_SOURCE_MAP.md](DECOMPILED_SOURCE_MAP.md).
+- **Daily → Gift Animals** — visiting wild animals that carry a gift (`WildAnimalVisitGiftFeature.cs`).
+  `GetComponents<WildAnimalComponent>` every 2 s, and an animal counts only while the game's own
+  `WildAnimalProtocolManager.HaveGift(EcsEntity)` says so, so the per-day (3) and per-animal (1)
+  visit-gift limits are already applied. Markers are keyed by netId (`WildGiftAnimalMarker_<netId>`)
+  and move with the animal. Icon = the game's own animal paw `ui_dynamic_hud_map_mark_animalgroup`
+  (Map atlas): on the game map a `TrackType.Animal` (23) track draws it natively (big map via the
+  `IsSameType` widening), and the ESP tag (code GA, pink) crops it out of the loaded `SpriteAtlas`
+  (`TryGetRadarIconFromSpriteAtlas`). Only animals streamed in around the player can be seen.
 - Toggle per category; select all / clear all.
 - Max distance slider (25–1000 m, default 75 m).
 - Marker styles: **Default** (icon markers) or **Simple Text**.
@@ -1473,6 +1542,21 @@ Full pipeline: [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#bag--warehouse-tr
 - **Claim:** `AnimalProtocolManager.TakeGift(uint)` → `AnimalGiftTakeNetworkCommand`.
 - Does **not** use managed `EcsService.TryGet<IWildAnimalService>`, `DataCenter.TryGetComponentData`, or level-object scan (those paths fail or are redundant under BepInEx).
 - Details, logs, troubleshooting: [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#wild-animal-gifts-detail).
+- ⚠️ **Visit gifts are not gift boxes.** A visiting animal carries `AnimalGiftComponent{Type=Visit}` on
+  its own entity with no gift-box entity at all, and `HaveGift()` (the gift-box group list) does not
+  list it — so **Claim All** stops at "no wild gifts available" and never reaches it (live, 2026-09-14).
+
+### Auto-claim visiting animal gifts (`WildAnimalVisitGiftFeature`)
+
+- Checkbox under **Claim All Wild Gifts** (Animal Care), available to everyone (out of beta 2026-09-17); saved in
+  Config.xml (`wildAnimalAutoClaimVisitGifts`).
+- Shares the Gift Animals radar scan; for each animal with a claimable gift it calls
+  `AnimalProtocolManager.TakeGift(netId)` — up to 3 sends per animal, 10 s apart, 0.5 s between sends,
+  never while Claim All is running. No distance limit of its own: the command carries no position, and a
+  claim from **36.7 m** was accepted in the live test (the gift flag cleared and the reward reached the
+  bag). Whether the server records the distance is unknown.
+- Log tag `[WildVisitGift]`: `+ gift animal`, `TakeGift(netId) attempt N dist=…`, `claimed netId=…`,
+  session totals on disable. Live status row "Auto-claim Animal Gifts".
 
 ### Daily Quests
 

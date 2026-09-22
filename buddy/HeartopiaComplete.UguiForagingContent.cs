@@ -103,7 +103,19 @@ namespace HeartopiaMod
             public Toggle WalkToAreaToggle;       // Walk to Zone Point (shown while Walk to Nodes is on)
             public Toggle WalkHoldRouteToggle;    // Hold Route Near Corners (same gate)
             public Toggle WalkKeepFinalToggle;    // Keep Final Waypoint (same gate)
+            public GameObject WalkCornerReachFootLabel;   // three slider rows, shown while Walk to Nodes is on
+            public Slider WalkCornerReachFootSlider;
+            public string WalkCornerReachFootShown;
+            public GameObject WalkCornerReachVehicleLabel;
+            public Slider WalkCornerReachVehicleSlider;
+            public string WalkCornerReachVehicleShown;
+            public GameObject WalkCornerReachSwimLabel;
+            public Slider WalkCornerReachSwimSlider;
+            public string WalkCornerReachSwimShown;
             public Toggle WalkVehicleToggle;      // Use Vehicle (shown while Walk to Nodes is on)
+            public GameObject WalkVehicleDelayLabel;      // Vehicle Delay slider row, same gate as the distance rows
+            public Slider WalkVehicleDelaySlider;
+            public string WalkVehicleDelayShown;
             public GameObject WalkVehicleDistanceLabel;   // slider row, shown only while Use Vehicle is on
             public Slider WalkVehicleDistanceSlider;
             public string WalkVehicleDistanceShown;
@@ -521,6 +533,27 @@ namespace HeartopiaMod
                 this.L("Keep Final Waypoint"), this.farmWalkKeepFinalNode,
                 new System.Action<bool>(this.OnUguiForagingWalkKeepFinalToggled));
 
+            handle.WalkCornerReachFootShown = this.LF("Corner Reach (Foot): {0}m", this.farmWalkCornerReachFoot.ToString("0.0"));
+            handle.WalkCornerReachFootLabel = this.CreateUguiBodyLabel(settings.transform,
+                "WalkCornerReachFootLabel", handle.WalkCornerReachFootShown, 13f);
+            handle.WalkCornerReachFootSlider = this.CreateUguiSlider(settings.transform, "WalkCornerReachFootSlider",
+                FarmWalkCornerReachFloor, FarmWalkCornerReachCeiling, this.farmWalkCornerReachFoot, false,
+                new System.Action<float>(this.OnUguiForagingWalkCornerReachFootChanged));
+
+            handle.WalkCornerReachVehicleShown = this.LF("Corner Reach (Vehicle): {0}m", this.farmWalkCornerReachVehicle.ToString("0.0"));
+            handle.WalkCornerReachVehicleLabel = this.CreateUguiBodyLabel(settings.transform,
+                "WalkCornerReachVehicleLabel", handle.WalkCornerReachVehicleShown, 13f);
+            handle.WalkCornerReachVehicleSlider = this.CreateUguiSlider(settings.transform, "WalkCornerReachVehicleSlider",
+                FarmWalkCornerReachFloor, FarmWalkCornerReachCeiling, this.farmWalkCornerReachVehicle, false,
+                new System.Action<float>(this.OnUguiForagingWalkCornerReachVehicleChanged));
+
+            handle.WalkCornerReachSwimShown = this.LF("Corner Reach (Swim): {0}m", this.farmWalkCornerReachSwim.ToString("0.0"));
+            handle.WalkCornerReachSwimLabel = this.CreateUguiBodyLabel(settings.transform,
+                "WalkCornerReachSwimLabel", handle.WalkCornerReachSwimShown, 13f);
+            handle.WalkCornerReachSwimSlider = this.CreateUguiSlider(settings.transform, "WalkCornerReachSwimSlider",
+                FarmWalkCornerReachFloor, FarmWalkCornerReachCeiling, this.farmWalkCornerReachSwim, false,
+                new System.Action<float>(this.OnUguiForagingWalkCornerReachSwimChanged));
+
             handle.WalkVehicleToggle = this.CreateUguiCheckbox(settings.transform, "WalkVehicleToggle",
                 this.L("Use Vehicle"), this.farmWalkUseVehicleEnabled,
                 new System.Action<bool>(this.OnUguiForagingWalkVehicleToggled));
@@ -540,6 +573,14 @@ namespace HeartopiaMod
                 FarmWalkVehicleDismountFloor, FarmWalkVehicleDismountCeiling,
                 this.farmWalkVehicleDismountDistance, true,
                 new System.Action<float>(this.OnUguiForagingWalkVehicleDismountChanged));
+
+            handle.WalkVehicleDelayShown = this.LF("Vehicle Delay: {0}s", (int)this.farmWalkVehicleDelaySeconds);
+            handle.WalkVehicleDelayLabel = this.CreateUguiBodyLabel(settings.transform,
+                "WalkVehicleDelayLabel", handle.WalkVehicleDelayShown, 13f);
+            handle.WalkVehicleDelaySlider = this.CreateUguiSlider(settings.transform, "WalkVehicleDelaySlider",
+                FarmWalkVehicleDelayFloor, FarmWalkVehicleDelayCeiling,
+                this.farmWalkVehicleDelaySeconds, true,
+                new System.Action<float>(this.OnUguiForagingWalkVehicleDelayChanged));
 
             // Steering the walker can drive with (FarmWalkVehicleFeature.ApplyFarmWalkVehicleMovementFix).
             handle.WalkVehicleFixToggle = this.CreateUguiCheckbox(settings.transform, "WalkVehicleFixToggle",
@@ -676,6 +717,12 @@ namespace HeartopiaMod
             SetUguiGoActive(handle.WalkToAreaToggle != null ? handle.WalkToAreaToggle.gameObject : null, walkRows);
             SetUguiGoActive(handle.WalkHoldRouteToggle != null ? handle.WalkHoldRouteToggle.gameObject : null, walkRows);
             SetUguiGoActive(handle.WalkKeepFinalToggle != null ? handle.WalkKeepFinalToggle.gameObject : null, walkRows);
+            SetUguiGoActive(handle.WalkCornerReachFootLabel, walkRows);
+            SetUguiGoActive(handle.WalkCornerReachFootSlider != null ? handle.WalkCornerReachFootSlider.gameObject : null, walkRows);
+            SetUguiGoActive(handle.WalkCornerReachVehicleLabel, walkRows);
+            SetUguiGoActive(handle.WalkCornerReachVehicleSlider != null ? handle.WalkCornerReachVehicleSlider.gameObject : null, walkRows);
+            SetUguiGoActive(handle.WalkCornerReachSwimLabel, walkRows);
+            SetUguiGoActive(handle.WalkCornerReachSwimSlider != null ? handle.WalkCornerReachSwimSlider.gameObject : null, walkRows);
             SetUguiGoActive(handle.WalkVehicleToggle != null ? handle.WalkVehicleToggle.gameObject : null, walkRows);
 
             // The distance slider needs BOTH: walking on, and the vehicle actually in use.
@@ -684,6 +731,8 @@ namespace HeartopiaMod
             SetUguiGoActive(handle.WalkVehicleDistanceSlider != null ? handle.WalkVehicleDistanceSlider.gameObject : null, vehicleRow);
             SetUguiGoActive(handle.WalkVehicleDismountLabel, vehicleRow);
             SetUguiGoActive(handle.WalkVehicleDismountSlider != null ? handle.WalkVehicleDismountSlider.gameObject : null, vehicleRow);
+            SetUguiGoActive(handle.WalkVehicleDelayLabel, vehicleRow);
+            SetUguiGoActive(handle.WalkVehicleDelaySlider != null ? handle.WalkVehicleDelaySlider.gameObject : null, vehicleRow);
             SetUguiGoActive(handle.WalkVehicleFixToggle != null ? handle.WalkVehicleFixToggle.gameObject : null, vehicleRow);
 
             if (walkRows)
@@ -704,6 +753,36 @@ namespace HeartopiaMod
                 if (handle.WalkKeepFinalToggle != null)
                 {
                     PlaceUguiTopLeft(handle.WalkKeepFinalToggle.gameObject, 30f, rowY, 250f, 24f);
+                }
+
+                rowY += 30f;
+                if (handle.WalkCornerReachFootLabel != null)
+                {
+                    PlaceUguiTopLeft(handle.WalkCornerReachFootLabel, 46f, rowY, 190f, 20f);
+                }
+                if (handle.WalkCornerReachFootSlider != null)
+                {
+                    PlaceUguiTopLeft(handle.WalkCornerReachFootSlider.gameObject, 244f, rowY + 1f, panelW - 272f, 20f);
+                }
+
+                rowY += 26f;
+                if (handle.WalkCornerReachVehicleLabel != null)
+                {
+                    PlaceUguiTopLeft(handle.WalkCornerReachVehicleLabel, 46f, rowY, 190f, 20f);
+                }
+                if (handle.WalkCornerReachVehicleSlider != null)
+                {
+                    PlaceUguiTopLeft(handle.WalkCornerReachVehicleSlider.gameObject, 244f, rowY + 1f, panelW - 272f, 20f);
+                }
+
+                rowY += 26f;
+                if (handle.WalkCornerReachSwimLabel != null)
+                {
+                    PlaceUguiTopLeft(handle.WalkCornerReachSwimLabel, 46f, rowY, 190f, 20f);
+                }
+                if (handle.WalkCornerReachSwimSlider != null)
+                {
+                    PlaceUguiTopLeft(handle.WalkCornerReachSwimSlider.gameObject, 244f, rowY + 1f, panelW - 272f, 20f);
                 }
 
                 rowY += 34f;
@@ -732,6 +811,16 @@ namespace HeartopiaMod
                     if (handle.WalkVehicleDismountSlider != null)
                     {
                         PlaceUguiTopLeft(handle.WalkVehicleDismountSlider.gameObject, 224f, rowY + 1f, panelW - 252f, 20f);
+                    }
+
+                    rowY += 26f;
+                    if (handle.WalkVehicleDelayLabel != null)
+                    {
+                        PlaceUguiTopLeft(handle.WalkVehicleDelayLabel, 46f, rowY, 170f, 20f);
+                    }
+                    if (handle.WalkVehicleDelaySlider != null)
+                    {
+                        PlaceUguiTopLeft(handle.WalkVehicleDelaySlider.gameObject, 224f, rowY + 1f, panelW - 252f, 20f);
                     }
 
                     rowY += 30f;
@@ -880,11 +969,19 @@ namespace HeartopiaMod
                 this.SyncUguiToggleFromField(handle.WalkToAreaToggle, this.farmWalkToAreaEnabled);
                 this.SyncUguiToggleFromField(handle.WalkHoldRouteToggle, this.farmWalkRepathHoldNearCorner);
                 this.SyncUguiToggleFromField(handle.WalkKeepFinalToggle, this.farmWalkKeepFinalNode);
+                this.SyncUguiSelfLabelText(handle.WalkCornerReachFootLabel, ref handle.WalkCornerReachFootShown,
+                    this.LF("Corner Reach (Foot): {0}m", this.farmWalkCornerReachFoot.ToString("0.0")));
+                this.SyncUguiSelfLabelText(handle.WalkCornerReachVehicleLabel, ref handle.WalkCornerReachVehicleShown,
+                    this.LF("Corner Reach (Vehicle): {0}m", this.farmWalkCornerReachVehicle.ToString("0.0")));
+                this.SyncUguiSelfLabelText(handle.WalkCornerReachSwimLabel, ref handle.WalkCornerReachSwimShown,
+                    this.LF("Corner Reach (Swim): {0}m", this.farmWalkCornerReachSwim.ToString("0.0")));
                 this.SyncUguiToggleFromField(handle.WalkVehicleToggle, this.farmWalkUseVehicleEnabled);
                 this.SyncUguiSelfLabelText(handle.WalkVehicleDistanceLabel, ref handle.WalkVehicleDistanceShown,
                     this.LF("Vehicle From: {0}m", (int)this.farmWalkVehicleMinDistance));
                 this.SyncUguiSelfLabelText(handle.WalkVehicleDismountLabel, ref handle.WalkVehicleDismountShown,
                     this.LF("Get Out At: {0}m", (int)this.farmWalkVehicleDismountDistance));
+                this.SyncUguiSelfLabelText(handle.WalkVehicleDelayLabel, ref handle.WalkVehicleDelayShown,
+                    this.LF("Vehicle Delay: {0}s", (int)this.farmWalkVehicleDelaySeconds));
                 this.SyncUguiToggleFromField(handle.WalkVehicleFixToggle, this.farmWalkVehicleFixEnabled);
                 this.SyncUguiToggleFromField(handle.TrackCompareToggle, this.farmWalkTrackCompareEnabled);
                 this.SyncUguiToggleFromField(handle.StealthBlockToggle, this.stealthBlockEnabled);
@@ -1109,6 +1206,48 @@ namespace HeartopiaMod
             try { this.SaveKeybinds(false); } catch { }
         }
 
+        // Tenths of a metre: fine enough to matter, coarse enough not to save on every pixel.
+        private static float RoundCornerReach(float value)
+        {
+            return Mathf.Clamp(Mathf.Round(value * 10f) / 10f, FarmWalkCornerReachFloor, FarmWalkCornerReachCeiling);
+        }
+
+        private void OnUguiForagingWalkCornerReachFootChanged(float value)
+        {
+            float clamped = RoundCornerReach(value);
+            if (Mathf.Approximately(clamped, this.farmWalkCornerReachFoot))
+            {
+                return;
+            }
+
+            this.farmWalkCornerReachFoot = clamped;
+            try { this.SaveKeybinds(false); } catch { }
+        }
+
+        private void OnUguiForagingWalkCornerReachVehicleChanged(float value)
+        {
+            float clamped = RoundCornerReach(value);
+            if (Mathf.Approximately(clamped, this.farmWalkCornerReachVehicle))
+            {
+                return;
+            }
+
+            this.farmWalkCornerReachVehicle = clamped;
+            try { this.SaveKeybinds(false); } catch { }
+        }
+
+        private void OnUguiForagingWalkCornerReachSwimChanged(float value)
+        {
+            float clamped = RoundCornerReach(value);
+            if (Mathf.Approximately(clamped, this.farmWalkCornerReachSwim))
+            {
+                return;
+            }
+
+            this.farmWalkCornerReachSwim = clamped;
+            try { this.SaveKeybinds(false); } catch { }
+        }
+
         private void OnUguiForagingWalkKeepFinalToggled(bool value)
         {
             if (value == this.farmWalkKeepFinalNode)
@@ -1172,6 +1311,18 @@ namespace HeartopiaMod
             }
 
             this.farmWalkUseVehicleEnabled = value;
+            try { this.SaveKeybinds(false); } catch { }
+        }
+
+        private void OnUguiForagingWalkVehicleDelayChanged(float value)
+        {
+            float clamped = Mathf.Clamp(Mathf.Round(value), FarmWalkVehicleDelayFloor, FarmWalkVehicleDelayCeiling);
+            if (Mathf.Approximately(clamped, this.farmWalkVehicleDelaySeconds))
+            {
+                return;
+            }
+
+            this.farmWalkVehicleDelaySeconds = clamped;
             try { this.SaveKeybinds(false); } catch { }
         }
 

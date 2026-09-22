@@ -64,7 +64,7 @@ Bugtopia/
 │   ├── BugtopiaInject/       ← native C bootstrap, injected into the running game
 │   ├── BugtopiaInterop/      ← net6.0 shim: generates interop inside BepInEx's own CoreCLR
 │   ├── BugtopiaLaunch/       ← storage tree, injection, profiles, downloads
-│   ├── BugtopiaLauncher/     ← the app (NativeAOT + Photino), ui.html
+│   ├── BugtopiaLauncher/     ← the app (NativeAOT, native Win32 window in Win32/)
 │   └── Directory.Build.props ← per-flavour bin\ and obj\
 ├── ci/                       ← build scripts used by the workflow
 │   ├── publish-launcher.ps1  ← publishes both launchers into release/
@@ -130,6 +130,7 @@ both launchers into `release/` as one file each:
 |---|---|---|
 | `Bugtopia-Launcher-<version>-offline.exe` | the mod; downloads nothing, ever | ~7.9 MB |
 | `Bugtopia-Launcher-<version>-online.exe` | no mod — fetches the newest release | ~4.2 MB |
+| `Bugtopia-Launcher-<version>-offline-nolink.exe` | with `-NoLink` (CI always): the BepInEx mod built without the Telegram link | ~7.9 MB |
 
 Needs **MSVC with the C++ workload** on top of the mod's own prerequisites: NativeAOT needs the
 linker and the bootstrap needs `cl.exe`. `-PluginDll <path>` packages a published

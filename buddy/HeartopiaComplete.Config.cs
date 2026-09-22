@@ -139,6 +139,8 @@ namespace HeartopiaMod
             data.keyEquipSeaCleaner = (int)this.keyEquipSeaCleaner;
             data.seaCleanAutoRadius = this.seaCleanAutoRadius;
             data.seaCleanCleanNoDelay = this.seaCleanCleanNoDelay;
+            data.cleanupBossAutoEnabled = this.cleanupBossAutoEnabled;
+            data.cleanupNoBounceEnabled = this.cleanupNoBounceEnabled;
             data.autoCleanseCorruptedEnabled = this.autoCleanseCorruptedEnabled;
             data.hideSeaCleanBannerEnabled = this.hideSeaCleanBannerEnabled;
             data.disableOobTeleportEnabled = this.disableOobTeleportEnabled;
@@ -146,10 +148,6 @@ namespace HeartopiaMod
             data.instantTeleportEnabled = this.instantTeleportEnabled;
             data.instantTeleportWaitFieldLoaded = this.instantTeleportWaitFieldLoaded;
             data.littleWhaleFinderEnabled = this.littleWhaleFinderEnabled;
-            data.sanrioGachaFinderEnabled = this.sanrioGachaFinderEnabled;
-            data.sanrioDropDayStamp = this.sanrioDropDayStamp;
-            data.sanrioDropTotalToday = this.sanrioDropTotalToday;
-            data.sanrioDropSceneDoneMask = this.sanrioDropSceneDoneMask;
             data.swimSprintTweakEnabled = this.swimSprintTweakEnabled;
             data.swimSprintDurationSeconds = this.swimSprintDurationSeconds;
             data.swimSprintCooldownSeconds = this.swimSprintCooldownSeconds;
@@ -160,6 +158,7 @@ namespace HeartopiaMod
             data.jumpTuningGravity = this.jumpTuningGravity;
             data.jumpTuningFallSpeedLimit = this.jumpTuningFallSpeedLimit;
             this.SaveGameUiTimingsToConfig(data);
+            this.SaveMiniMapZoomToConfig(data);
             data.keyGameSpeed1x = (int)this.keyGameSpeed1x;
             data.keyGameSpeed2x = (int)this.keyGameSpeed2x;
             data.keyGameSpeed5x = (int)this.keyGameSpeed5x;
@@ -200,6 +199,10 @@ namespace HeartopiaMod
             data.farmWalkVehicleFixEnabled = this.farmWalkVehicleFixEnabled;
             data.farmWalkVehicleMinDistance = this.farmWalkVehicleMinDistance;
             data.farmWalkVehicleDismountDistance = this.farmWalkVehicleDismountDistance;
+            data.farmWalkVehicleDelaySeconds = this.farmWalkVehicleDelaySeconds;
+            data.farmWalkCornerReachFoot = this.farmWalkCornerReachFoot;
+            data.farmWalkCornerReachVehicle = this.farmWalkCornerReachVehicle;
+            data.farmWalkCornerReachSwim = this.farmWalkCornerReachSwim;
             data.resourceAutoRepairPauseSeconds = this.resourceAutoRepairPauseSeconds;
             data.gameSpeed = this.gameSpeed;
             data.fpsBypassEnabled = this.fpsBypassEnabled;
@@ -243,6 +246,7 @@ namespace HeartopiaMod
             data.quietCongratsPopups = this.quietCongratsPopups;
             data.quietBpPayRewardPopup = this.quietBpPayRewardPopup;
             data.quietPetPhotoResultPopup = this.quietPetPhotoResultPopup;
+            data.quietAnimalCardPopups = this.quietAnimalCardPopups;
             data.emoteUnlockEnabled = this.emoteUnlockEnabled;
             data.paintStyleUnlockEnabled = this.paintStyleUnlockEnabled;
             data.furnitureDyePickerEnabled = this.furnitureDyePickerEnabled;
@@ -250,10 +254,12 @@ namespace HeartopiaMod
             data.foragingAnimEnabled = this.foragingAnimEnabled;
             data.skipCraftDyeAnimations = this.skipCraftDyeAnimations;
             data.autoLearnRecipes = this.autoLearnRecipes;
+            data.wildAnimalAutoClaimVisitGifts = this.wildAnimalAutoClaimVisitGifts;
             data.autoLikeOwnHome = this.autoLikeOwnHome;
             data.craftDirectSendEnabled = this.craftDirectSendEnabled;
             data.interactObstacleBypassEnabled = this.interactObstacleBypassEnabled;
             data.interactBuildModeBypassEnabled = this.interactBuildModeBypassEnabled;
+            data.petHeightLimitBypassEnabled = this.petHeightLimitBypassEnabled;
             data.persistentHudEnabled = this.persistentHudEnabled;
             data.vehicleBypassEnabled = this.vehicleBypassEnabled;
             data.vehicleBypassServerEventsEnabled = this.vehicleBypassServerEventsEnabled;
@@ -498,6 +504,8 @@ namespace HeartopiaMod
                 ? SeaCleanAutoRadiusDefault
                 : Mathf.Clamp(data.seaCleanAutoRadius, SeaCleanAutoRadiusMin, SeaCleanAutoRadiusMax);
             this.seaCleanCleanNoDelay = data.seaCleanCleanNoDelay;
+            this.cleanupBossAutoEnabled = data.cleanupBossAutoEnabled;
+            this.cleanupNoBounceEnabled = data.cleanupNoBounceEnabled;
             this.autoCleanseCorruptedEnabled = data.autoCleanseCorruptedEnabled;
             this.hideSeaCleanBannerEnabled = data.hideSeaCleanBannerEnabled;
             this.disableOobTeleportEnabled = data.disableOobTeleportEnabled;
@@ -505,10 +513,6 @@ namespace HeartopiaMod
             this.instantTeleportEnabled = data.instantTeleportEnabled;
             this.instantTeleportWaitFieldLoaded = data.instantTeleportWaitFieldLoaded;
             this.littleWhaleFinderEnabled = data.littleWhaleFinderEnabled;
-            this.sanrioGachaFinderEnabled = data.sanrioGachaFinderEnabled;
-            this.sanrioDropDayStamp = data.sanrioDropDayStamp;
-            this.sanrioDropTotalToday = data.sanrioDropTotalToday;
-            this.sanrioDropSceneDoneMask = data.sanrioDropSceneDoneMask;
             this.swimSprintTweakEnabled = data.swimSprintTweakEnabled;
             this.swimSprintDurationSeconds = data.swimSprintDurationSeconds <= 0f
                 ? SwimSprintDurationDefault
@@ -531,6 +535,7 @@ namespace HeartopiaMod
                 ? JumpTuningFallLimitDefault
                 : Mathf.Clamp(data.jumpTuningFallSpeedLimit, JumpTuningFallLimitMin, JumpTuningFallLimitMax);
             this.LoadGameUiTimingsFromConfig(data);
+            this.LoadMiniMapZoomFromConfig(data);
             this.keyGameSpeed1x = (KeyCode)data.keyGameSpeed1x;
             this.keyGameSpeed2x = (KeyCode)data.keyGameSpeed2x;
             this.keyGameSpeed5x = (KeyCode)data.keyGameSpeed5x;
@@ -584,6 +589,23 @@ namespace HeartopiaMod
                 ? 10f
                 : Mathf.Clamp(data.farmWalkVehicleDismountDistance,
                     FarmWalkVehicleDismountFloor, FarmWalkVehicleDismountCeiling);
+
+            // 0 is a legal value for the delay too: absent = the field's -1 initializer.
+            this.farmWalkVehicleDelaySeconds = data.farmWalkVehicleDelaySeconds < 0f
+                ? 0f
+                : Mathf.Clamp(data.farmWalkVehicleDelaySeconds, FarmWalkVehicleDelayFloor, FarmWalkVehicleDelayCeiling);
+
+            // 0 is a legal value for this one, so absence is a NEGATIVE sentinel (the field's own
+            // initializer), not zero.
+            this.farmWalkCornerReachFoot = data.farmWalkCornerReachFoot < 0f
+                ? FarmWalkCornerReachDefault
+                : Mathf.Clamp(data.farmWalkCornerReachFoot, FarmWalkCornerReachFloor, FarmWalkCornerReachCeiling);
+            this.farmWalkCornerReachVehicle = data.farmWalkCornerReachVehicle < 0f
+                ? FarmWalkCornerReachDefault
+                : Mathf.Clamp(data.farmWalkCornerReachVehicle, FarmWalkCornerReachFloor, FarmWalkCornerReachCeiling);
+            this.farmWalkCornerReachSwim = data.farmWalkCornerReachSwim < 0f
+                ? FarmWalkCornerReachDefault
+                : Mathf.Clamp(data.farmWalkCornerReachSwim, FarmWalkCornerReachFloor, FarmWalkCornerReachCeiling);
             // Belt and braces for a hand-edited Config.xml: the two modes cannot both be on.
             if (this.farmWalkToNodeEnabled && this.stealthForagingEnabled)
             {
@@ -635,6 +657,7 @@ namespace HeartopiaMod
             this.quietCongratsPopups = data.quietCongratsPopups;
             this.quietBpPayRewardPopup = data.quietBpPayRewardPopup;
             this.quietPetPhotoResultPopup = data.quietPetPhotoResultPopup;
+            this.quietAnimalCardPopups = data.quietAnimalCardPopups;
             this.emoteUnlockEnabled = data.emoteUnlockEnabled;
             this.paintStyleUnlockEnabled = data.paintStyleUnlockEnabled;
             this.furnitureDyePickerEnabled = data.furnitureDyePickerEnabled;
@@ -642,10 +665,12 @@ namespace HeartopiaMod
             this.foragingAnimEnabled = data.foragingAnimEnabled;
             this.skipCraftDyeAnimations = data.skipCraftDyeAnimations;
             this.autoLearnRecipes = data.autoLearnRecipes;
+            this.wildAnimalAutoClaimVisitGifts = data.wildAnimalAutoClaimVisitGifts;
             this.autoLikeOwnHome = data.autoLikeOwnHome;
             this.craftDirectSendEnabled = data.craftDirectSendEnabled;
             this.interactObstacleBypassEnabled = data.interactObstacleBypassEnabled;
             this.interactBuildModeBypassEnabled = data.interactBuildModeBypassEnabled;
+            this.petHeightLimitBypassEnabled = data.petHeightLimitBypassEnabled;
             this.persistentHudEnabled = data.persistentHudEnabled;
             // Plain assignment is enough: ApplyKeybindConfig only ever runs once, from LoadKeybinds
             // at startup (HeartopiaComplete.cs:533), so every retry/latch field is still at its
@@ -1075,6 +1100,7 @@ namespace HeartopiaMod
                         else if (line.Contains("craftDirectSendEnabled")) this.craftDirectSendEnabled = GetJsonInt(line, "\"craftDirectSendEnabled\":") != 0;
                         else if (line.Contains("interactObstacleBypassEnabled")) this.interactObstacleBypassEnabled = GetJsonInt(line, "\"interactObstacleBypassEnabled\":") != 0;
                         else if (line.Contains("interactBuildModeBypassEnabled")) this.interactBuildModeBypassEnabled = GetJsonInt(line, "\"interactBuildModeBypassEnabled\":") != 0;
+                        else if (line.Contains("petHeightLimitBypassEnabled")) this.petHeightLimitBypassEnabled = GetJsonInt(line, "\"petHeightLimitBypassEnabled\":") != 0;
                         else if (line.Contains("persistentHudEnabled")) this.persistentHudEnabled = GetJsonInt(line, "\"persistentHudEnabled\":") != 0;
                         else if (line.Contains("autoIceSkatingMinUltimateScore")) this.autoIceSkatingMinUltimateScore = Mathf.Clamp(GetJsonInt(line, "\"autoIceSkatingMinUltimateScore\":"), 0, AutoIceSkatingMinUltimateScoreSliderMax);
                         else if (line.Contains("autoIceSkatingOnlyX2Ultimate")) this.autoIceSkatingOnlyX2Ultimate = GetJsonInt(line, "\"autoIceSkatingOnlyX2Ultimate\":") != 0;

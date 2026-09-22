@@ -32,6 +32,7 @@ namespace HeartopiaMod
         // Set when the vehicle was left because it could not get past something, cleared as soon as
         // we are back in one (or the walk ends). See TryRemountFarmWalkVehicle.
         private bool farmWalkVehicleLeftForObstacle;
+        private bool farmWalkVehicleDelayEscapeLogged;
         private Vector3 farmWalkVehicleLeftAt;
 
         // How far past the obstacle counts as "past it". Short: the point is that the wedge is
@@ -144,7 +145,10 @@ namespace HeartopiaMod
 
         internal void ApplyFarmWalkVehicleMovementFix(string why)
         {
-            if (!this.farmWalkVehicleFixEnabled || !this.autoFarmActive)
+            // Any mod-driven walk qualifies, not only Auto Farm: the quest-walk hotkey summons the
+            // same vehicle through the same TryBeginFarmWalk and suffered the same turn lag, but the
+            // fix was gated on autoFarmActive alone and silently skipped it.
+            if (!this.farmWalkVehicleFixEnabled || (!this.autoFarmActive && !this.questWalkFollowing))
             {
                 return;
             }
@@ -752,6 +756,39 @@ namespace HeartopiaMod
         // saves — which is exactly the judgement that constant already encodes.
         internal void TryRemountFarmWalkVehicle(Vector3 selfPos)
         {
+            // The delayed first summon ("Vehicle Delay"): the walk began on foot, the delay has
+            // run, and the rest of the haul is still worth a vehicle. Not during an escape — the
+            // summon would land the car on the obstacle the walker is working around.
+            if (this.farmWalkVehicleDelayedUntil >= 0f && Time.unscaledTime >= this.farmWalkVehicleDelayedUntil)
+            {
+                // An escape in progress only postpones the summon — it used to cancel it for the
+                // whole haul, and a 262 m zone haul was walked because a 2 s delay ended inside
+                // the unstick of the first corner (2026-09-22, area:Black Truffle Spawn).
+                if (this.farmWalkUnstickPhase != FarmWalkUnstickIdle)
+                {
+                    if (!this.farmWalkVehicleDelayEscapeLogged)
+                    {
+                        this.farmWalkVehicleDelayEscapeLogged = true;
+                        ModLogger.Msg("[FarmVehicle] delay over mid-escape — summoning once the escape is done.");
+                    }
+                    return;
+                }
+
+                this.farmWalkVehicleDelayedUntil = -1f;
+                this.farmWalkVehicleDelayEscapeLogged = false;
+                if (!this.ShouldFarmWalkSummonVehicle(selfPos, this.farmWalkTarget))
+                {
+                    ModLogger.Msg("[FarmVehicle] delay over, but only " + this.ComputeFarmWalkRouteRemaining(selfPos).ToString("F0")
+                        + "m of route left (or no summon possible) — walking the rest.");
+                }
+                else
+                {
+                    ModLogger.Msg("[FarmVehicle] delay over with " + this.ComputeFarmWalkRouteRemaining(selfPos).ToString("F0")
+                        + "m to go — summoning now.");
+                    this.TryFarmWalkSummonAndMount();
+                }
+            }
+
             if (!this.farmWalkVehicleLeftForObstacle)
             {
                 return;

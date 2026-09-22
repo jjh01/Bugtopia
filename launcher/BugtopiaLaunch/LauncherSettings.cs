@@ -21,6 +21,15 @@ namespace Bugtopia.Launch
         [JsonPropertyName("bepInExSource")]
         public string BepInExSource { get; set; }
 
+        /// <summary>
+        /// The archive the user picked, when they picked one. Kept beside
+        /// <see cref="BepInExSource"/> rather than instead of it: that is the folder the zip was
+        /// unpacked into, which is the same path every time and so says nothing about what is in it.
+        /// Null once a folder is chosen directly, or after a download - neither is a file anyone picked.
+        /// </summary>
+        [JsonPropertyName("bepInExArchive")]
+        public string BepInExArchive { get; set; }
+
         [JsonPropertyName("storage")]
         public string Storage { get; set; }
 
@@ -65,6 +74,14 @@ namespace Bugtopia.Launch
         /// </summary>
         [JsonPropertyName("expert")]
         public bool Expert { get; set; }
+
+        /// <summary>
+        /// Start the game on its own after three seconds when nothing is left to set up. On unless
+        /// turned off: a file written before this existed has no such key, and the initialiser is
+        /// what it gets.
+        /// </summary>
+        [JsonPropertyName("autoLaunch")]
+        public bool AutoLaunch { get; set; } = true;
 
         /// <summary><c>%LocalLow%\Bugtopia\runtime</c> — beside the mod's own user data.</summary>
         public static string DefaultStorage => KnownPaths.DefaultStorage;

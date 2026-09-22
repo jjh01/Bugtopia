@@ -88,6 +88,12 @@ namespace HeartopiaMod
         private int musicPlayerLoopsDone;
         // noteId -> instrumentType of the press that is currently held (release/stop bookkeeping).
         private readonly Dictionary<int, byte> musicPlayerHeldNotes = new Dictionary<int, byte>();
+
+        // Notes drained this tick, in FILE order. The wire command splits a tick into
+        // pressingKeys/releasingKeys, which loses the ordering between a note-off and the
+        // re-press of the same note; the local echo replays this list instead so what we hear
+        // matches what the game's own record player would do.
+        private readonly List<ValueTuple<int, bool>> musicPlayerLocalEcho = new List<ValueTuple<int, bool>>();
         private int musicPlayerNotesPlayed;
         private int musicPlayerNotesDropped;
         private string musicPlayerStatus = string.Empty;
@@ -145,7 +151,7 @@ namespace HeartopiaMod
         private IntPtr musicPlayerFieldPlayerNetId;
         private IntPtr musicPlayerFieldInstrumentNetId;
         private IntPtr musicPlayerFieldLevelObjectNetId;
-        private IntPtr musicPlayerFieldType;
+        private IntPtr musicPlayerFieldInstrumentTypeId;
         private IntPtr musicPlayerFieldPressingKeys;
         private IntPtr musicPlayerFieldReleasingKeys;
         private IntPtr musicPlayerIntListClass;
@@ -548,6 +554,7 @@ namespace HeartopiaMod
             List<int> press = null;
             List<int> release = null;
             byte batchType = 0;
+            this.musicPlayerLocalEcho.Clear();
 
             while (this.musicPlayerNextIndex < this.musicPlayerEvents.Count)
             {
@@ -564,7 +571,15 @@ namespace HeartopiaMod
                 bool typeChanges = batchType != 0 && ev.InstrumentType != batchType;
                 bool capHit = (press != null && press.Count >= MusicPlayerMaxKeysPerCommand)
                     || (release != null && release.Count >= MusicPlayerMaxKeysPerCommand);
-                if (typeChanges || capHit)
+
+                // One PlayInstrumentData carries no ordering between pressingKeys and
+                // releasingKeys, so a note that appears on both sides of the same batch has to be
+                // split across two commands or the receiver may stop it before it starts.
+                bool orderConflict = ev.IsStart
+                    ? (release != null && release.Contains(ev.NoteId))
+                    : (press != null && press.Contains(ev.NoteId));
+
+                if (typeChanges || capHit || orderConflict)
                 {
                     this.MusicPlayerDispatchBatch(batchType, press, release);
                     press = null;
@@ -582,28 +597,38 @@ namespace HeartopiaMod
                         continue;
                     }
 
-                    if (this.musicPlayerHeldNotes.ContainsKey(ev.NoteId))
-                    {
-                        continue;
-                    }
-
+                    // NO re-press guard: the game re-attacks a note that is still ringing
+                    // (AudioPlaybackComponent.HandlePlaybackEvent posts playEeventName
+                    // unconditionally and just overwrites its _activeNotes entry). Suppressing
+                    // the second attack swallowed 15% of the notes in a legato track.
                     this.musicPlayerHeldNotes[ev.NoteId] = ev.InstrumentType;
                     this.musicPlayerNotesPlayed++;
                     (press ??= new List<int>()).Add(ev.NoteId);
+                    this.musicPlayerLocalEcho.Add(new ValueTuple<int, bool>(ev.NoteId, true));
                 }
                 else
                 {
-                    // Only release notes we actually pressed (skips releases of dropped note-ons).
-                    if (!this.musicPlayerHeldNotes.Remove(ev.NoteId))
-                    {
-                        continue;
-                    }
-
+                    // The game stops unconditionally too; a stop for a note that is not sounding
+                    // is a no-op, whereas skipping it can leave a note ringing forever.
+                    this.musicPlayerHeldNotes.Remove(ev.NoteId);
                     (release ??= new List<int>()).Add(ev.NoteId);
+                    this.musicPlayerLocalEcho.Add(new ValueTuple<int, bool>(ev.NoteId, false));
                 }
             }
 
             this.MusicPlayerDispatchBatch(batchType, press, release);
+
+            // Local echo last, in file order — see musicPlayerLocalEcho. Runs in BOTH modes: the
+            // server never relays our own notes back to us.
+            if (this.musicPlayerLocalEcho.Count > 0)
+            {
+                this.MusicPlayerEnsurePlayerAkRegistered(GetLocalPlayer());
+                for (int i = 0; i < this.musicPlayerLocalEcho.Count; i++)
+                {
+                    ValueTuple<int, bool> note = this.musicPlayerLocalEcho[i];
+                    this.MusicPlayerPostLocalNote(note.Item1, note.Item2);
+                }
+            }
         }
 
         private void MusicPlayerDispatchBatch(byte instrumentType, List<int> press, List<int> release)
@@ -622,23 +647,9 @@ namespace HeartopiaMod
                 this.MusicPlayerSendPlayCommand(instrumentType, press, release);
             }
 
-            // Local echo in BOTH modes: the server never plays our own notes back to us.
-            this.MusicPlayerEnsurePlayerAkRegistered(GetLocalPlayer());
-            if (press != null)
-            {
-                for (int i = 0; i < press.Count; i++)
-                {
-                    this.MusicPlayerPostLocalNote(press[i], true);
-                }
-            }
-
-            if (release != null)
-            {
-                for (int i = 0; i < release.Count; i++)
-                {
-                    this.MusicPlayerPostLocalNote(release[i], false);
-                }
-            }
+            // The local echo is NOT posted here — MusicPlayerDrainDueEvents replays the tick in
+            // file order after every batch has gone out, because this press/release split cannot
+            // express "stop this note, then hit it again".
         }
 
         private void MusicPlayerReleaseAllHeld()
@@ -1077,9 +1088,40 @@ namespace HeartopiaMod
 
         // ==================== network send ====================
 
+        // A send failure used to set the UI status only, so the log said nothing about why
+        // network playback did not work. Errors always go to the log (throttled, because a batch
+        // can be dispatched many times a second), never toast-only.
+        private void MusicPlayerNetFail(string error)
+        {
+            this.musicPlayerStatus = "Net: " + error;
+            if (Time.unscaledTime >= this.musicPlayerErrorLogThrottleAt)
+            {
+                this.musicPlayerErrorLogThrottleAt = Time.unscaledTime + 10f;
+                MusicPlayerLog("Send failed: " + error);
+            }
+        }
+
+        // Every handle MusicPlayerSendPlayCommand dereferences without a null check. Both the
+        // fast path and the post-resolve validation gate on this, so a partial binding can never
+        // reach mono_field_set_value.
+        private bool MusicPlayerNetBindingComplete()
+        {
+            return this.musicPlayerPlayInstrumentMethod != IntPtr.Zero
+                && this.musicPlayerPlayDataClass != IntPtr.Zero
+                && this.musicPlayerFieldPlayerNetId != IntPtr.Zero
+                && this.musicPlayerFieldInstrumentTypeId != IntPtr.Zero
+                && this.musicPlayerFieldPressingKeys != IntPtr.Zero
+                && this.musicPlayerFieldReleasingKeys != IntPtr.Zero;
+        }
+
         private bool MusicPlayerEnsureNetworkResolved(out string error)
         {
-            if (this.musicPlayerPlayInstrumentMethod != IntPtr.Zero && this.musicPlayerPlayDataClass != IntPtr.Zero)
+            // Fail closed on the WHOLE binding, not just method+class. A fast path that only
+            // checked those two let a null field handle through to mono_field_set_value, which
+            // computes obj+field->offset off a NULL field and kills the process (crash
+            // 2026-09-12, WER dump coreclr_30764: first Play logged "fields not resolved" and
+            // aborted cleanly, the second took this fast path and died at the `type` write).
+            if (this.MusicPlayerNetBindingComplete())
             {
                 error = string.Empty;
                 return true;
@@ -1148,21 +1190,24 @@ namespace HeartopiaMod
                 return false;
             }
 
-            if (this.musicPlayerFieldPlayerNetId == IntPtr.Zero)
+            // Re-attempt while ANY required handle is still null — gating this on playerNetId
+            // alone meant a single missing field was never retried.
+            if (!this.MusicPlayerNetBindingComplete())
             {
                 this.musicPlayerFieldPlayerNetId = auraMonoClassGetFieldFromName(this.musicPlayerPlayDataClass, "playerNetId");
                 this.musicPlayerFieldInstrumentNetId = auraMonoClassGetFieldFromName(this.musicPlayerPlayDataClass, "instrumentNetId");
                 this.musicPlayerFieldLevelObjectNetId = auraMonoClassGetFieldFromName(this.musicPlayerPlayDataClass, "instrumentLevelObjectNetId");
-                this.musicPlayerFieldType = auraMonoClassGetFieldFromName(this.musicPlayerPlayDataClass, "type");
+                // PlayInstrumentData.instrumentTypeId — NOT "type"; the struct has never had a
+                // field by that name, so this lookup returned NULL on every build.
+                this.musicPlayerFieldInstrumentTypeId = auraMonoClassGetFieldFromName(this.musicPlayerPlayDataClass, "instrumentTypeId");
                 this.musicPlayerFieldPressingKeys = auraMonoClassGetFieldFromName(this.musicPlayerPlayDataClass, "pressingKeys");
                 this.musicPlayerFieldReleasingKeys = auraMonoClassGetFieldFromName(this.musicPlayerPlayDataClass, "releasingKeys");
             }
 
-            if (this.musicPlayerFieldPlayerNetId == IntPtr.Zero || this.musicPlayerFieldType == IntPtr.Zero
-                || this.musicPlayerFieldPressingKeys == IntPtr.Zero || this.musicPlayerFieldReleasingKeys == IntPtr.Zero)
+            if (!this.MusicPlayerNetBindingComplete())
             {
                 error = "PlayInstrumentData fields not resolved (playerNetId=" + (this.musicPlayerFieldPlayerNetId != IntPtr.Zero)
-                    + " type=" + (this.musicPlayerFieldType != IntPtr.Zero)
+                    + " instrumentTypeId=" + (this.musicPlayerFieldInstrumentTypeId != IntPtr.Zero)
                     + " pressingKeys=" + (this.musicPlayerFieldPressingKeys != IntPtr.Zero)
                     + " releasingKeys=" + (this.musicPlayerFieldReleasingKeys != IntPtr.Zero) + ")";
                 this.musicPlayerNetResolveError = error;
@@ -1291,7 +1336,7 @@ namespace HeartopiaMod
 
             if (!this.MusicPlayerEnsureNetworkResolved(out string error))
             {
-                this.musicPlayerStatus = "Net: " + error;
+                this.MusicPlayerNetFail(error);
                 return false;
             }
 
@@ -1301,7 +1346,7 @@ namespace HeartopiaMod
                 IntPtr pressList = this.MusicPlayerCreateIntList(out error);
                 if (pressList == IntPtr.Zero)
                 {
-                    this.musicPlayerStatus = "Net: " + error;
+                    this.MusicPlayerNetFail(error);
                     return false;
                 }
 
@@ -1310,7 +1355,7 @@ namespace HeartopiaMod
                 IntPtr releaseList = this.MusicPlayerCreateIntList(out error);
                 if (releaseList == IntPtr.Zero)
                 {
-                    this.musicPlayerStatus = "Net: " + error;
+                    this.MusicPlayerNetFail(error);
                     return false;
                 }
 
@@ -1319,14 +1364,14 @@ namespace HeartopiaMod
                 if (!this.MusicPlayerListAddInts(pressList, press, out error)
                     || !this.MusicPlayerListAddInts(releaseList, release, out error))
                 {
-                    this.musicPlayerStatus = "Net: " + error;
+                    this.MusicPlayerNetFail(error);
                     return false;
                 }
 
                 IntPtr boxed = auraMonoObjectNew(this.auraMonoRootDomain, this.musicPlayerPlayDataClass);
                 if (boxed == IntPtr.Zero)
                 {
-                    this.musicPlayerStatus = "Net: PlayInstrumentData alloc failed";
+                    this.MusicPlayerNetFail("PlayInstrumentData alloc failed");
                     return false;
                 }
 
@@ -1347,7 +1392,7 @@ namespace HeartopiaMod
                     auraMonoFieldSetValue(boxed, this.musicPlayerFieldLevelObjectNetId, (IntPtr)(&levelObjectNetId));
                 }
 
-                auraMonoFieldSetValue(boxed, this.musicPlayerFieldType, (IntPtr)(&typeValue));
+                auraMonoFieldSetValue(boxed, this.musicPlayerFieldInstrumentTypeId, (IntPtr)(&typeValue));
                 // Reference-type fields take the object pointer DIRECTLY
                 // (memory/auramono-field-set-value-ref-semantics.md).
                 auraMonoFieldSetValue(boxed, this.musicPlayerFieldPressingKeys, pressList);
@@ -1356,7 +1401,7 @@ namespace HeartopiaMod
                 IntPtr unboxed = auraMonoObjectUnbox(boxed);
                 if (unboxed == IntPtr.Zero)
                 {
-                    this.musicPlayerStatus = "Net: unbox failed";
+                    this.MusicPlayerNetFail("unbox failed");
                     return false;
                 }
 

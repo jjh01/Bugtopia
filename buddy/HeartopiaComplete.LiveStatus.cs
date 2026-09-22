@@ -217,6 +217,11 @@ namespace HeartopiaMod
                 entries.Add(this.CreateLiveFeatureEntry("Aura Farm: Dog Poop", this.GetPetPoopLiveSummary()));
             }
 
+            if (this.IsWildVisitGiftAutoClaimActive)
+            {
+                entries.Add(this.CreateLiveFeatureEntry("Auto-claim Animal Gifts", this.GetWildVisitGiftLiveSummary()));
+            }
+
             if (this.bunnyHopEnabled)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Bunny Hop", "Active"));
@@ -240,6 +245,11 @@ namespace HeartopiaMod
             if (this.quietBpPayRewardPopup)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Quiet BP Reward Popup", "Active"));
+            }
+
+            if (this.quietAnimalCardPopups)
+            {
+                entries.Add(this.CreateLiveFeatureEntry("Quiet Animal Cards", "Active"));
             }
 
             if (this.activityRewardAutoClaim)
@@ -300,6 +310,16 @@ namespace HeartopiaMod
             if (this.interactBuildModeBypassEnabled)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Interact Build-Mode Bypass", this.interactBuildModeStatus));
+            }
+
+            if (this.petHeightLimitBypassEnabled)
+            {
+                entries.Add(this.CreateLiveFeatureEntry("Pet Height Limit Bypass", this.petHeightLimitStatus));
+            }
+
+            if (this.miniMapZoomEnabled)
+            {
+                entries.Add(this.CreateLiveFeatureEntry("Minimap Zoom", this.miniMapZoomStatus));
             }
 
             if (this.persistentHudEnabled)
