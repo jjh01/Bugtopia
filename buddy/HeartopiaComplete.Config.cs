@@ -147,7 +147,6 @@ namespace HeartopiaMod
             data.noclipSyncPositionEnabled = this.noclipSyncPositionEnabled;
             data.instantTeleportEnabled = this.instantTeleportEnabled;
             data.instantTeleportWaitFieldLoaded = this.instantTeleportWaitFieldLoaded;
-            data.littleWhaleFinderEnabled = this.littleWhaleFinderEnabled;
             data.swimSprintTweakEnabled = this.swimSprintTweakEnabled;
             data.swimSprintDurationSeconds = this.swimSprintDurationSeconds;
             data.swimSprintCooldownSeconds = this.swimSprintCooldownSeconds;
@@ -169,11 +168,6 @@ namespace HeartopiaMod
             data.keyEquipSprinkler = (int)this.keyEquipSprinkler;
             data.keyEquipBirdScanner = (int)this.keyEquipBirdScanner;
             data.keyEquipPad = (int)this.keyEquipPad;
-            data.keyPadConfirm = (int)this.keyPadConfirm;
-            data.keyPadCancel = (int)this.keyPadCancel;
-            data.keyPadRotate = (int)this.keyPadRotate;
-            data.keyPadMove = (int)this.keyPadMove;
-            data.keyPadDelete = (int)this.keyPadDelete;
             data.keyAutoInsectFarm = (int)this.keyAutoInsectFarm;
             data.keyAutoBirdFarm = (int)this.keyAutoBirdFarm;
             data.keyMassCook = (int)this.keyMassCook;
@@ -512,7 +506,6 @@ namespace HeartopiaMod
             this.noclipSyncPositionEnabled = data.noclipSyncPositionEnabled;
             this.instantTeleportEnabled = data.instantTeleportEnabled;
             this.instantTeleportWaitFieldLoaded = data.instantTeleportWaitFieldLoaded;
-            this.littleWhaleFinderEnabled = data.littleWhaleFinderEnabled;
             this.swimSprintTweakEnabled = data.swimSprintTweakEnabled;
             this.swimSprintDurationSeconds = data.swimSprintDurationSeconds <= 0f
                 ? SwimSprintDurationDefault
@@ -546,11 +539,6 @@ namespace HeartopiaMod
             this.keyEquipSprinkler = (KeyCode)data.keyEquipSprinkler;
             this.keyEquipBirdScanner = (KeyCode)data.keyEquipBirdScanner;
             this.keyEquipPad = (KeyCode)data.keyEquipPad;
-            this.keyPadConfirm = (KeyCode)data.keyPadConfirm;
-            this.keyPadCancel = (KeyCode)data.keyPadCancel;
-            this.keyPadRotate = (KeyCode)data.keyPadRotate;
-            this.keyPadMove = (KeyCode)data.keyPadMove;
-            this.keyPadDelete = (KeyCode)data.keyPadDelete;
             this.keyAutoInsectFarm = (KeyCode)data.keyAutoInsectFarm;
             this.keyAutoBirdFarm = (KeyCode)data.keyAutoBirdFarm;
             this.keyMassCook = (KeyCode)data.keyMassCook;
@@ -1280,11 +1268,6 @@ namespace HeartopiaMod
             this.keyEquipSprinkler = KeyCode.None;
             this.keyEquipBirdScanner = KeyCode.None;
             this.keyEquipPad = KeyCode.None;
-            this.keyPadConfirm = KeyCode.None;
-            this.keyPadCancel = KeyCode.None;
-            this.keyPadRotate = KeyCode.None;
-            this.keyPadMove = KeyCode.None;
-            this.keyPadDelete = KeyCode.None;
             this.keyAutoInsectFarm = KeyCode.None;
             this.keyAutoBirdFarm = KeyCode.None;
             this.keyMassCook = KeyCode.None;
@@ -1417,11 +1400,6 @@ namespace HeartopiaMod
                 case "Equip Sprinkler": this.keyEquipSprinkler = newKey; break;
                 case "Equip Bird Scanner": this.keyEquipBirdScanner = newKey; break;
                 case "Equip Pad": this.keyEquipPad = newKey; break;
-                case "Pad Confirm": this.keyPadConfirm = newKey; break;
-                case "Pad Cancel": this.keyPadCancel = newKey; break;
-                case "Pad Rotate": this.keyPadRotate = newKey; break;
-                case "Pad Move": this.keyPadMove = newKey; break;
-                case "Pad Delete": this.keyPadDelete = newKey; break;
                 case "Auto Insect Farm": this.keyAutoInsectFarm = newKey; break;
                 case "Auto Bird Farm": this.keyAutoBirdFarm = newKey; break;
                 case "Mass Cook": this.keyMassCook = newKey; break;

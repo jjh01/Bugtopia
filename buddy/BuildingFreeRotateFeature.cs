@@ -33,12 +33,9 @@ namespace HeartopiaMod
         private float buildingRotZ;
         private float buildingRotZApplied;
 
-        // God-mode camera WASD pan. BuildModule._buildCamera (BuildFreeCamera).Move(Vector2) pans the
-        // camera in the XZ plane along the flattened forward/right (the same path mouse-drag uses).
-        private IntPtr godCamMoveMethod = IntPtr.Zero;
+        // God-mode camera vertical move (the horizontal WASD pan is the game's own since 2026-09-24).
         private IntPtr godCamMoveDirectMethod = IntPtr.Zero; // BuildFreeCamera._Move(Vector3) — raw position set
-        private const float GodCameraMoveSpeed = 500f;       // horizontal pan units/sec (game-scaled inside Move)
-        private const float GodCameraVerticalSpeed = 6f;     // Space/Ctrl vertical, world units/sec
+        private const float GodCameraVerticalSpeed = 6f;     // E/Space up, Q down, world units/sec
 
         // Auto move-panel: appears while CraftState.Focus (object grabbed/being moved) and the menu is closed.
         private bool buildingMovePanelActive;
@@ -57,8 +54,18 @@ namespace HeartopiaMod
         // disable is balanced by exactly one enable), so digits / Enter / Esc / Delete typed into
         // the field never reach the build UI's shortcuts. Held a short grace after focus ends so
         // the Enter/Esc that closed the field is swallowed too.
+        //
+        // Since the 2026-09-24 game update BuildStatusPanel binds 15 PC shortcuts (Delete = pack the
+        // focused furniture, Tab = switch mode, Enter = confirm, R/M/C/K/O/P, 1-4, Ctrl+Z), so the
+        // same mute now covers ANY focused text field (the mod's own search/settings fields
+        // included) while the build panel is up — ProcessBuildingTextInputGuardOnUpdate. The move
+        // panel only reports its own focus through buildingCoordEditTyping.
         private bool buildingCoordEditInputDisabled;
         private float buildingCoordEditInputReleaseAt;
+        private bool buildingCoordEditTyping;
+        private bool buildingTextGuardPanelOpen;
+        private float buildingTextGuardPanelCheckAt = -999f;
+        private const float BuildingTextGuardPanelCheckInterval = 0.25f;
         private const float BuildingCoordEditInputGrace = 0.3f;
 
         // Free-snap toggles. While on + an object focused, the focused BuildComponent's snap config
@@ -231,8 +238,15 @@ namespace HeartopiaMod
             }
         }
 
-        // WASD pans the god-mode camera in the XZ plane (mirrors the mouse drag-pan). Only acts in god
-        // mode and when no keys are held it does no AuraMono work. Gated off while the mod menu is open.
+        // Vertical god-mode camera: E or Space up, Q down. Only acts in god mode (checked inside
+        // TryGodCameraVertical); with no key held it does no AuraMono work. Gated off while the mod
+        // menu is open or any text field is focused.
+        //
+        // Since the 2026-09-24 game update the game pans the god camera on WASD itself
+        // (BuildModule.Update -> BuildFreeCamera.Move at BuildConfig.camera.KeyboardMoveSpeed), so the
+        // mod's own WASD pan was removed — both ran and the camera moved ~1.33x. Down moved off Ctrl
+        // for the same update: Ctrl is now the game's modifier for Ctrl+wheel (plane height) and
+        // Ctrl+Z / Ctrl+Shift+Z (undo/redo), and every one of those dipped the camera.
         private void ProcessGodCameraMoveOnUpdate()
         {
             // "Menu open" = any MODAL registry surface (the UGUI shell) — showMenu is retired.
@@ -240,26 +254,17 @@ namespace HeartopiaMod
             {
                 return;
             }
-            float x = 0f, ydir = 0f;
-            if (Input.GetKey(KeyCode.W)) ydir -= 1f; // forward
-            if (Input.GetKey(KeyCode.S)) ydir += 1f; // back
-            if (Input.GetKey(KeyCode.A)) x += 1f;    // left
-            if (Input.GetKey(KeyCode.D)) x -= 1f;    // right
-            if (x != 0f || ydir != 0f)
-            {
-                this.TryGodCameraMove(new Vector2(x, ydir) * (GodCameraMoveSpeed * Time.unscaledDeltaTime));
-            }
 
             float dy = 0f;
-            if (Input.GetKey(KeyCode.Space)) dy += 1f;                                       // up
-            if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) dy -= 1f; // down
+            if (Input.GetKey(KeyCode.E) || Input.GetKey(KeyCode.Space)) dy += 1f; // up
+            if (Input.GetKey(KeyCode.Q)) dy -= 1f;                                 // down
             if (dy != 0f)
             {
                 this.TryGodCameraVertical(dy * GodCameraVerticalSpeed * Time.unscaledDeltaTime);
             }
         }
 
-        // Move the god camera vertically by dy world units (Space up / Ctrl down). Writes the camera
+        // Move the god camera vertically by dy world units (E/Space up, Q down). Writes the camera
         // group position via BuildFreeCamera._Move (the canonical setter); the camera Update leaves an
         // Idle/zero-velocity position untouched, so it holds.
         private unsafe bool TryGodCameraVertical(float dy)
@@ -309,48 +314,6 @@ namespace HeartopiaMod
             }
         }
 
-        private unsafe bool TryGodCameraMove(Vector2 delta)
-        {
-            if (auraMonoRuntimeInvoke == null || auraMonoObjectGetClass == null)
-            {
-                return false;
-            }
-            if (!this.TryGetPadBuildAuraModule(out IntPtr module) || module == IntPtr.Zero)
-            {
-                return false;
-            }
-            if (!(this.TryGetMonoBoolMember(module, "InGodMode", out bool g) && g))
-            {
-                return false; // build free camera only exists in god mode
-            }
-            if (!this.TryGetMonoObjectMember(module, "_buildCamera", out IntPtr cam) || cam == IntPtr.Zero)
-            {
-                return false;
-            }
-
-            try
-            {
-                if (this.godCamMoveMethod == IntPtr.Zero)
-                {
-                    this.godCamMoveMethod = this.FindAuraMonoMethodOnHierarchy(auraMonoObjectGetClass(cam), "Move", 1);
-                }
-                if (this.godCamMoveMethod == IntPtr.Zero)
-                {
-                    return false;
-                }
-                Vector2 d = delta;
-                IntPtr exc = IntPtr.Zero;
-                IntPtr* args = stackalloc IntPtr[1];
-                args[0] = (IntPtr)(&d);
-                auraMonoRuntimeInvoke(this.godCamMoveMethod, cam, (IntPtr)args, ref exc);
-                return exc == IntPtr.Zero;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
         // Reset the X/Y/Z position + rotation jog sliders to 0 without moving the object. Called on the
         // confirm hotkey so the next placement starts fresh.
         private void ResetBuildingAxisSliders()
@@ -385,6 +348,10 @@ namespace HeartopiaMod
             if (this.TryGetPadBuildAuraModule(out IntPtr module) && module != IntPtr.Zero)
             {
                 this.buildingMovePanelGodMode = this.TryGetMonoBoolMember(module, "InGodMode", out bool g) && g;
+                if (this.buildingMovePanelGodMode)
+                {
+                    this.SyncBuildingPlaneHeightFromGame(module);
+                }
                 if (this.TryGetPadBuildAuraSubState(module, out int sub))
                 {
                     this.buildingMovePanelSubState = sub;
@@ -407,6 +374,34 @@ namespace HeartopiaMod
                     this.ResetBuildingAxisSliders(); // focus ended → next object starts fresh
                 }
             }
+        }
+
+        // Since 2026-09-24 the game also sets the build plane itself (Ctrl+wheel ->
+        // PlaneHeightWidget.SetPlaneHeightByWheel, 0..16), through the same SetPlaneHeight the mod
+        // slider uses (0..24). Adopt the game's current plane into the slider so the two never
+        // disagree; both the value and its applied twin move, so nothing is written back. A change
+        // the user is still applying (value != applied) is left alone.
+        private void SyncBuildingPlaneHeightFromGame(IntPtr module)
+        {
+            if (!Mathf.Approximately(this.buildingPlaneHeight, this.buildingPlaneHeightApplied)
+                && this.buildingPlaneHeightApplied >= 0f)
+            {
+                return;
+            }
+            if (!this.TryGetMonoSingleMember(module, "_standardHeight", out float standard)
+                || !this.TryGetMonoSingleMember(module, "_basePlaneHeight", out float basePlane))
+            {
+                return;
+            }
+
+            float offset = standard - basePlane;
+            if (float.IsNaN(offset) || float.IsInfinity(offset) || Mathf.Abs(offset - this.buildingPlaneHeight) < 0.01f)
+            {
+                return;
+            }
+
+            this.buildingPlaneHeight = offset;
+            this.buildingPlaneHeightApplied = offset;
         }
 
         // Quiet (no logging) read of the focused object's local position + yaw, for the live panel
@@ -606,9 +601,33 @@ namespace HeartopiaMod
             return list.ToArray();
         }
 
-        // Called every frame by the move panel with "one of my fields has focus". Mutes on the
-        // rising edge, unmutes once the grace after the last focused frame has run out. Also called
-        // with false when the panel hides, so a closed panel can never leave the game muted.
+        // Every frame from OnUpdate. Typing = the move panel's coordinate editor has focus, or any
+        // text field is focused while BuildStatusPanel is open. The panel lookup (GameObject.Find)
+        // runs only while a field is focused, and at most 4x per second.
+        private void ProcessBuildingTextInputGuardOnUpdate()
+        {
+            bool typing = this.buildingCoordEditTyping;
+            if (!typing && this.IsGameTextInputFocused())
+            {
+                float now = Time.unscaledTime;
+                if (now >= this.buildingTextGuardPanelCheckAt)
+                {
+                    this.buildingTextGuardPanelCheckAt = now + BuildingTextGuardPanelCheckInterval;
+                    this.buildingTextGuardPanelOpen = this.TryFindPadBuildPanelRoot() != null;
+                }
+                typing = this.buildingTextGuardPanelOpen;
+            }
+            else if (!typing)
+            {
+                this.buildingTextGuardPanelCheckAt = -999f; // re-check at once on the next focus
+            }
+
+            this.UpdateBuildingCoordEditInputGuard(typing);
+        }
+
+        // Mutes on the rising edge, unmutes once the grace after the last typing frame has run out.
+        // Driven only by ProcessBuildingTextInputGuardOnUpdate, so it is always called with false
+        // once nothing is focused and can never leave the game muted.
         private void UpdateBuildingCoordEditInputGuard(bool typing)
         {
             float now = Time.unscaledTime;

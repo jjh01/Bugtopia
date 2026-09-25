@@ -111,21 +111,24 @@ disabled except the menu toggle** — so typing a message never accidentally tri
 you can still open/close the mod menu. Instrument note-keys are likewise suppressed while an
 instrument panel is open. Both are automatic, no configuration needed (`InstrumentHotkeyGuardFeature.cs`).
 
-### Pad build hotkeys (`PadBuildHotkeyFeature.cs`)
+### Pad build hotkeys — removed
 
-Keyboard control of the building pad without touching the on-screen `BuildStatusPanel` buttons. Five rebindable keys (Settings → Keybinds, default unbound):
+Removed 2026-09-24. The game's build panel now has its own PC shortcuts for all five (Enter,
+Esc, R, M, Delete — `BuildStatusPanel.BindPcInput`), rebindable in **Settings → Game Keys → Build
+mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled the action.
 
-| Key | Action | Behaviour |
-|-----|--------|-----------|
-| Pad Confirm | `BuildModule.ConfirmPlacing(false)` | Places the held object (panel hold-button parity) |
-| Pad Cancel | `BuildModule.CancelPlacing()` | Cancels current placing |
-| Pad Rotate | `BuildModule.RotateAround()` | Rotates the held object; 250 ms debounce |
-| Pad Move | `BuildModule.InteractExecuteMove()` | Picks up the focused object for moving; no-op in god mode (grab is a click there) |
-| Pad Delete | Pad mode: `InteractExecutePickup()` (pack to backpack); god mode: `InteractExecuteDelete()` (wreck) | Removes the focused object |
+### Building — god-mode camera and typing while building
 
-All five are gated on `BuildModule.SubState == CraftState.Focus` — in simple Pad free-roam (no object focused/being placed) every key is a **silent no-op**. Works in both homeland build modes (Pad/TPS and god top-down view).
-
-Implementation is a three-tier `BuildModule` resolution (managed → AuraMono `Managers.GetModule(Type)` → UI button clicks); see [TYPE_RESOLUTION.md](./TYPE_RESOLUTION.md) and [plans/2026-06-10-pad-build-api-migration.md](./plans/2026-06-10-pad-build-api-migration.md). Debug log flag: `MasterLogPadBuild`.
+- **Horizontal pan is the game's own** since 2026-09-24 (WASD in Advanced/God mode). The mod's
+  WASD pan was removed: both ran together and the camera moved ~1.33x.
+- **Vertical camera move stays a mod extra: E or Space up, Q down** (it was Space/Ctrl — Ctrl is
+  now the game's modifier for Ctrl+Z and Ctrl+wheel, and each of those dipped the camera).
+- The build-plane slider (0-24 m) follows the game's own Ctrl+wheel plane height (0-16 m), so the
+  two never disagree.
+- **While any text field is focused in build mode** (mod search, settings, the move panel's
+  coordinate editor, or a game field) the game's build input events are muted, so typing Delete,
+  Tab or Enter never packs the focused item, switches mode or confirms. Released 0.3 s after the
+  field lets go. `ProcessBuildingTextInputGuardOnUpdate` in `BuildingFreeRotateFeature.cs`.
 
 ---
 
@@ -216,6 +219,30 @@ Implementation is a three-tier `BuildModule` resolution (managed → AuraMono `M
   triggered from (the map may stay open) and exited the current player state first (we warp as-is,
   like every other mod teleport).
 - Persisted; default off. Source: `buddy/InstantTeleportFeature.cs`.
+- Since the 2026-09-24 update a warp over ~50-80 m makes the **server** unspawn and respawn the
+  player (2-6 s invisible and frozen; `PlayerSyncSystem` logs `UnSpawnPlayer`/`SpawnPlayer`). Vanilla
+  hides it behind its splash. The warp itself stays instant; the mod only keeps itself consistent
+  across the gap (Self-respawn guard below).
+
+### Self-respawn guard (always on)
+
+- When the server re-creates our player (see Instant Teleport above) the client deletes the player
+  entity and builds a new one. The guard follows the game's `PlayerUnSpawnEvent` /
+  `PlayerSpawnEvent` for our netId and, between them (plus a 0.5 s settle, bounded at 25 s):
+  - holds the Auto Farm state machine without advancing its clock, so the collect wait of the node
+    just hopped to resumes afterwards instead of timing out and parking a healthy spot;
+  - skips the Aura Farm tick (no player to scan from);
+  - makes `GetLocalPlayer()` return null instead of a nearby remote player's skeleton, and keeps
+    `TeleportToLocation` from writing to one;
+  - drops the noclip drive cache on both edges — it used to keep driving the deleted component, so
+    noclip and Stealth Foraging lost the player until the next world change. Noclip may take the new
+    entity from the spawn event on (during the settle), so a Stealth dive does not fall meanwhile.
+- On close it checks where the player came back against the mod teleport that caused the respawn
+  (within the last 2 s). More than 30 m off (seen once: a Stealth area dive whose spawn event never
+  came, player found at y = -1254) repeats that teleport, once per destination; Stealth Foraging's
+  hover is re-pinned to the dive target either way.
+- Log: `[SelfRespawn] the server removed our player (respawn #n)` / `player back (…)`.
+  Source: `buddy/SelfRespawnGuardFeature.cs`.
 
 ### Skip Craft / Dye Animations
 
@@ -419,8 +446,11 @@ Implementation is a three-tier `BuildModule` resolution (managed → AuraMono `M
 
 ### Building — Bypass Overlap
 
-- Client-side building placement overlap bypass.
-- Applies additional Harmony patch on demand (`EnsureBypassPatched`).
+- Client-side building placement overlap bypass: Mono `NativeDetour`s on
+  `IntersectionTesting.Test` and `BuildSingle.OverlapCompleteWithSlab` (no Harmony / IL2CPP patch).
+- The game's own **Ignore Overlap** setting (2026-09-24, needs Home Evaluation > 1500) is weaker: it
+  still refuses overlap with scene colliders and slab-on-slab overlap, and it is hidden below the
+  score. Details: [HOUSE_BUILDING.md §12](./HOUSE_BUILDING.md).
 - Credits third-party contributor in UI.
 
 ### Building — Unlock all wall / floor paint styles (Self → Building sub-tab)
@@ -1987,7 +2017,7 @@ All default to **KeyCode.None** except menu toggle. Grouped as in Settings → K
 | CORE | Toggle Menu (**Insert**), Toggle Radar, Bypass UI, Disable All, Inspect Player, Inspect Move |
 | AUTOMATION | Auto Foraging, Aura Farm, Water + Weed Radius, Auto Insect Farm, Auto Bird Farm, Fish Shadow Net, Mass Cook, Auto Puzzle, Auto Cat Play, Auto Dog Train, Auto Pet Wash, Feed All Cats, Feed All Dogs, Auto Snow Sculpture, Auto Sand Sculpture, Bird Vacuum, Spawn Bubble, Auto Repair, Auto Eat |
 | PLAYER | Noclip, Camera Toggle, Auto Ice Skating, Join My Town, Anti AFK, Bypass Overlap |
-| SPEED & TOOLS | Game Speed 1×/2×/5×/10×, Equip Axe / Net / Rod / Sprinkler / Bird Scanner / Pad, Pad Confirm / Cancel / Rotate / Move / Delete |
+| SPEED & TOOLS | Game Speed 1×/2×/5×/10×, Equip Axe / Net / Rod / Sprinkler / Bird Scanner / Pad |
 
 Rebind by clicking the button in Settings and pressing a new key. Mouse buttons are bindable too. Layout note: panel section heights are sized by row count (`BeginKeybindSection` rowCount) and the scroll height by `CalculateSettingsTabHeight` — both must be bumped when adding rows, or the new rows render outside the panel/scroll.
 

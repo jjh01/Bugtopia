@@ -553,28 +553,36 @@ namespace Bugtopia.Launcher.Win32
 
             // The footer is measured first: the log takes whatever height is left, but never less than 96px.
             var forceSize = Measure(force);
+            var waitSize = Measure(waitForGame);
             var prepareSize = Measure(prepare);
             var generateSize = Measure(generate);
+            var cancelSize = Measure(cancel);
             var playSize = Measure(play);
+            bool cancellable = countdown || waiting;
 
-            // The buttons never shrink (white-space: nowrap); the checkbox's label wraps instead when the
-            // row is too narrow for all of it, as the page's flex row does.
-            float buttonsW = prepareSize.Width + generateSize.Width + playSize.Width + S(12) * 2;
-            float forceRoom = width - buttonsW - S(12);
-            if (forceSize.Width > forceRoom)
+            // The buttons never shrink (white-space: nowrap), so the checkboxes take what is left of the
+            // row. Squeezing a label into a sliver a couple of words wide reads as broken, so once the
+            // room is below what the wider label needs, the pair moves to a row of its own above the
+            // buttons - side by side when they fit, stacked when they do not.
+            float buttonsW = prepareSize.Width + generateSize.Width + playSize.Width + S(12) * 2 +
+                             (cancellable ? cancelSize.Width + S(12) : 0);
+            float checkRoom = width - buttonsW - S(12);
+            bool checksOwnRow = MathF.Max(forceSize.Width, waitSize.Width) > checkRoom;
+            bool checksSideBySide = checksOwnRow && forceSize.Width + S(16) + waitSize.Width <= width;
+            if (!checksOwnRow)
             {
-                // Never narrower than its longest word: a label may wrap between words, not inside one.
-                float longestWord = 0;
-                foreach (string word in force.Text.Split(' '))
-                    longestWord = MathF.Max(longestWord, Fonts.Measure(Fonts.Check, word));
-                float minimum = S(16) + S(8) + longestWord + 1;
-                forceSize = (MathF.Max(minimum, forceRoom),
-                             TextBlock.Layout(new List<TextRun> { new TextRun(force.Text) }, Fonts.Check, Fonts.Check,
-                                              MathF.Max(minimum, forceRoom) - S(24), Fonts.Check.LineHeight).Height);
+                forceSize = WrapLabel(force, forceSize, checkRoom);
+                waitSize = WrapLabel(waitForGame, waitSize, checkRoom);
             }
-            float rowH = MathF.Max(forceSize.Height, MathF.Max(prepareSize.Height, MathF.Max(generateSize.Height, playSize.Height)));
+
+            float checksH = checksSideBySide
+                ? MathF.Max(forceSize.Height, waitSize.Height)
+                : forceSize.Height + S(6) + waitSize.Height;
+            float buttonsH = MathF.Max(prepareSize.Height, MathF.Max(generateSize.Height, playSize.Height));
+            float rowH = checksOwnRow ? buttonsH : MathF.Max(checksH, buttonsH);
             float kbdHeight = Fonts.Kbd.LineHeight + S(1) * 2 + border * 2;
-            float footerH = rowH + S(10) + MathF.Max(Fonts.Hint.LineHeight, kbdHeight);
+            float footerH = (checksOwnRow ? checksH + S(10) : 0) +
+                            rowH + S(10) + MathF.Max(Fonts.Hint.LineHeight, kbdHeight);
 
             logX = padX;
             logY = y;
@@ -586,10 +594,29 @@ namespace Bugtopia.Launcher.Win32
             UpdateLogScrollBar();
             y += logH + gap;
 
-            // [Force regenerate] ........ [Prepare] [Generate interop] [Launch]
-            PlaceScrolled(force, padX, y + (rowH - forceSize.Height) / 2, forceSize.Width, forceSize.Height, true);
+            // [Force regenerate]  ....... [Prepare] [Generate interop] ([Cancel]) [Launch]
+            // [I start the game myself]
+            // - or, when the buttons leave the checkboxes no room, a row of their own first:
+            // [Force regenerate] [I start the game myself]
+            // ................................ [Prepare] [Generate interop] ([Cancel]) [Launch]
+            float checksY = checksOwnRow ? y : y + (rowH - checksH) / 2;
+            PlaceScrolled(force, padX, checksY, forceSize.Width, forceSize.Height, true);
+            if (checksSideBySide)
+                PlaceScrolled(waitForGame, padX + forceSize.Width + S(16), checksY,
+                              waitSize.Width, waitSize.Height, true);
+            else
+                PlaceScrolled(waitForGame, padX, checksY + forceSize.Height + S(6),
+                              waitSize.Width, waitSize.Height, true);
+            if (checksOwnRow)
+                y += checksH + S(10);
+
             float bx = padX + width - playSize.Width;
             PlaceScrolled(play, bx, y + (rowH - playSize.Height) / 2, playSize.Width, playSize.Height, true);
+            if (cancellable)
+            {
+                bx -= S(12) + cancelSize.Width;
+                PlaceScrolled(cancel, bx, y + (rowH - cancelSize.Height) / 2, cancelSize.Width, cancelSize.Height, true);
+            }
             bx -= S(12) + generateSize.Width;
             PlaceScrolled(generate, bx, y + (rowH - generateSize.Height) / 2, generateSize.Width, generateSize.Height, true);
             bx -= S(12) + prepareSize.Width;
@@ -597,6 +624,23 @@ namespace Bugtopia.Launcher.Win32
             y += rowH + S(10);
 
             return LayoutHint(y, padX, width);
+        }
+
+        /// <summary>
+        /// A checkbox narrowed to the room it has, its label wrapping - but never narrower than its
+        /// longest word, since a label may wrap between words and not inside one.
+        /// </summary>
+        private (float Width, float Height) WrapLabel(Button box, (float Width, float Height) size, float room)
+        {
+            if (size.Width <= room)
+                return size;
+
+            float longestWord = 0;
+            foreach (string word in box.Text.Split(' '))
+                longestWord = MathF.Max(longestWord, Fonts.Measure(Fonts.Check, word));
+            float width = MathF.Max(S(16) + S(8) + longestWord + 1, room);
+            return (width, TextBlock.Layout(new List<TextRun> { new TextRun(box.Text) }, Fonts.Check, Fonts.Check,
+                                            width - S(24), Fonts.Check.LineHeight).Height);
         }
 
         private float Label(string text, float x, float y)

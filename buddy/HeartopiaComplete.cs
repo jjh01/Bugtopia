@@ -74,11 +74,6 @@ namespace HeartopiaMod
         private KeyCode keyEquipBirdScanner = KeyCode.None;
         private KeyCode keyEquipPad = KeyCode.None;
         private KeyCode keyEquipSeaCleaner = KeyCode.None;
-        private KeyCode keyPadConfirm = KeyCode.None;
-        private KeyCode keyPadCancel = KeyCode.None;
-        private KeyCode keyPadRotate = KeyCode.None;
-        private KeyCode keyPadMove = KeyCode.None;
-        private KeyCode keyPadDelete = KeyCode.None;
         private KeyCode keyAutoInsectFarm = KeyCode.None;
         private KeyCode keyAutoBirdFarm = KeyCode.None;
         private KeyCode keyMassCook = KeyCode.None;
@@ -651,6 +646,7 @@ namespace HeartopiaMod
             // game's MonoInputManager (the player isn't driven by Unity's CharacterController.Move),
             // so no hot-path Harmony patch is installed for this.
             this.UpdateMenuMovementInputBlock();
+            this.UpdateKeyCaptureInputBlock();
             Breadcrumbs.Drop("ou.patched");
 
             if (BirdNetFarm.IsEnabled)
@@ -802,8 +798,6 @@ namespace HeartopiaMod
             this.ProcessForagingTeleportTraceOnUpdate();
             Breadcrumbs.Phase("ou.oobguard");
             this.ProcessOutOfBoundsGuardOnUpdate();
-            Breadcrumbs.Phase("ou.whalefinder");
-            this.ProcessLittleWhaleFinderOnUpdate();
             Breadcrumbs.Phase("ou.research");
             this.ProcessResearchMonitorOnUpdate();
             // Quest Walk drives the SAME walker the farm does, so it must tick before the shell
@@ -861,6 +855,7 @@ namespace HeartopiaMod
             this.ProcessActivityRewardAutoClaimOnUpdate();
             Breadcrumbs.Phase("ou.teleport");
             this.ProcessInstantTeleportOnUpdate();
+            this.ProcessSelfRespawnGuardOnUpdate();
             this.ProcessVehicleBypassOnUpdate();
             this.ProcessEntityEventDebugOnUpdate();
             this.FlushPendingGameSpeedConfigSave();
@@ -1278,13 +1273,13 @@ namespace HeartopiaMod
                         this.AddOrUpdateMenuNotification("tool-equip", unequipped ? "Unequipping Sea Cleaner" : "Equipping Sea Cleaner", new Color(0.45f, 1f, 0.55f));
                     }
                 }
-                this.ProcessPadBuildHotkeysOnUpdate();
             }
 
             Breadcrumbs.Drop("ou.afterhotkeys");
             this.UpdateBuildingFreeSnapOverrides();
             this.UpdateBuildingMovePanelState();
             this.ProcessGodCameraMoveOnUpdate();
+            this.ProcessBuildingTextInputGuardOnUpdate();
             this.RunAntiAfkTick();
 
             // Check live durability / energy panel triggers on separate lightweight schedules.
@@ -4757,6 +4752,8 @@ namespace HeartopiaMod
         // True while we have an outstanding DisableInput(Move) on the game's MonoInputManager
         // because the mod menu is open with "block game input" on. Must be balanced 1:1 with EnableInput.
         private bool menuMoveInputDisabled = false;
+        private bool keyCaptureInputDisabled = false;
+        private float keyCaptureInputReleaseAt = -999f;
 
         // Bypass overlap building state (patch = Mono NativeDetours in BuildingFreeRotateFeature.cs)
         private bool bypassOverlapEnabled = false;
