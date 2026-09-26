@@ -77,8 +77,7 @@ namespace HeartopiaMod
         private bool furnitureDyeCostTableMissing;
 
         private IntPtr furnitureDyePanelGetViewMethod;
-        private IntPtr furnitureDyePanelTypeObj;       // valid only while furnitureDyePanelTypePin holds it
-        private uint furnitureDyePanelTypePin;
+        private AuraMonoObjectCache furnitureDyePanelTypeCache;
         private int furnitureDyePanelTypeEpoch = -1;
 
         // ----------------------------------------------------------------------------------------
@@ -166,10 +165,13 @@ namespace HeartopiaMod
 
             // The System.Type object holds a reference into the world's assemblies; re-make it when
             // the world changes rather than carrying a stale one across a level load.
-            if (this.furnitureDyePanelTypeObj == IntPtr.Zero
-                || this.furnitureDyePanelTypeEpoch != this.WorldReadyEpoch)
+            IntPtr typeObj = IntPtr.Zero;
+            if (this.furnitureDyePanelTypeEpoch != this.WorldReadyEpoch
+                || !this.furnitureDyePanelTypeCache.TryGet(out typeObj))
             {
-                if (!this.TryCreateAuraMonoSystemTypeObject(FurnitureDyePanelTypeName, out IntPtr typeObj)
+                this.furnitureDyePanelTypeCache.Clear();
+                this.furnitureDyePanelTypeEpoch = -1;
+                if (!this.TryCreateAuraMonoSystemTypeObject(FurnitureDyePanelTypeName, out typeObj)
                     || typeObj == IntPtr.Zero)
                 {
                     // Not transient: an unresolvable type means the panel can never be seen, and
@@ -178,25 +180,19 @@ namespace HeartopiaMod
                         + " unresolved - panel mode cannot detect the dye panel (game update?)");
                     return false;
                 }
-                // A MonoObject* kept across frames must be pinned: the GC moves nursery objects,
-                // and a freshly made type object starts there. The pin also keeps it alive.
-                if (this.furnitureDyePanelTypePin != 0U)
+                this.furnitureDyePanelTypeCache.Set(typeObj);
+                if (!this.furnitureDyePanelTypeCache.TryGet(out typeObj))
                 {
-                    AuraMonoPinFree(this.furnitureDyePanelTypePin);
-                }
-                this.furnitureDyePanelTypePin = AuraMonoPinNew(typeObj);
-                if (this.furnitureDyePanelTypePin == 0U)
-                {
-                    this.furnitureDyePanelTypeObj = IntPtr.Zero;
+                    FeatureLog.Fail(FurnitureDyeTag, "could not pin System.Type for "
+                        + FurnitureDyePanelTypeName);
                     return false;
                 }
-                this.furnitureDyePanelTypeObj = typeObj;
                 this.furnitureDyePanelTypeEpoch = this.WorldReadyEpoch;
             }
 
             IntPtr exc = IntPtr.Zero;
             IntPtr* args = stackalloc IntPtr[1];
-            args[0] = this.furnitureDyePanelTypeObj;
+            args[0] = typeObj;
             IntPtr view = auraMonoRuntimeInvoke(this.furnitureDyePanelGetViewMethod, uiManagerObj,
                                                 (IntPtr)args, ref exc);
             if (exc != IntPtr.Zero || view == IntPtr.Zero)
