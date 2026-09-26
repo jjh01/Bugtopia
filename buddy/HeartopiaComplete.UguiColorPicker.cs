@@ -108,8 +108,13 @@ namespace HeartopiaMod
         private float uguiDyeNextApplyAt;
         private bool uguiDyeApplyPending;
         private int uguiDyeSyncedStaticId = -1;
+        private bool uguiDyeSyncedPanel;
         private string uguiDyeStatus = string.Empty;
         private float uguiDyeNextFocusAt;
+        // Set while the picker writes the hex field itself. InputField.text's setter fires
+        // onValueChanged synchronously, so without this the display refresh re-enters the input
+        // path and stages a dye edit nobody asked for (see OnUguiDyeHexChanged).
+        private bool uguiDyeHexWriting;
 
         // The user-facing switch (Self -> Building). Persisted as furnitureDyePickerEnabled.
         private bool furnitureDyePickerEnabled;
@@ -208,13 +213,27 @@ namespace HeartopiaMod
         // panel always opens showing what is actually on the object rather than a stale hue.
         private void SyncUguiDyePickerToTarget(UguiDyePickerHandle handle, FurnitureDyeTarget target)
         {
-            if (this.uguiDyeSyncedStaticId == target.StaticId)
+            bool panel = target.Source == FurnitureDyeSource.Panel;
+
+            // In panel mode the GAME owns part selection - it has its own tab strip right there,
+            // and two competing selectors would be a bug generator. Follow it, and adopt that
+            // part's colour whenever it changes under us.
+            if (panel && this.uguiDyeSelectedPart != target.PanelSelectedPart
+                && this.uguiDyeSyncedStaticId == target.StaticId)
+            {
+                this.uguiDyeSelectedPart = target.PanelSelectedPart;
+                this.AdoptUguiDyeColorFromTarget(target);
+                this.RebuildUguiDyePaletteRow(handle, target);
+            }
+
+            if (this.uguiDyeSyncedStaticId == target.StaticId && this.uguiDyeSyncedPanel == panel)
             {
                 return;
             }
 
             this.uguiDyeSyncedStaticId = target.StaticId;
-            this.uguiDyeSelectedPart = 0;
+            this.uguiDyeSyncedPanel = panel;
+            this.uguiDyeSelectedPart = panel ? target.PanelSelectedPart : 0;
             this.uguiDyeStatus = string.Empty;
             this.AdoptUguiDyeColorFromTarget(target);
             this.RebuildUguiDyePartRow(handle, target);
@@ -315,7 +334,46 @@ namespace HeartopiaMod
 
             this.uguiDyeApplyPending = false;
             this.uguiDyeNextApplyAt = Time.unscaledTime + UguiDyeApplyIntervalSec;
-            this.ApplyUguiDyeSelection(target, this.CurrentUguiDyePacked());
+
+            int packed = this.CurrentUguiDyePacked();
+            if (this.UguiDyeSelectedPartAlreadyIs(target, packed))
+            {
+                return;
+            }
+            this.ApplyUguiDyeSelection(target, packed);
+        }
+
+        // True when every body of the selected part already carries `packed` - on the object, or
+        // as its default when the object is undyed. Staging that would be a paid no-op.
+        private bool UguiDyeSelectedPartAlreadyIs(FurnitureDyeTarget target, int packed)
+        {
+            int idx = Mathf.Clamp(this.uguiDyeSelectedPart, 0, target.Parts.Count - 1);
+            List<FurnitureDyeSubPart> sub = target.Parts[idx].Sub;
+            for (int i = 0; i < sub.Count; i++)
+            {
+                int have = target.Current.TryGetValue(sub[i].Body, out int live) ? live : sub[i].DefaultColor;
+                if (!UguiDyeSameColour(have, packed))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // The picker holds HSV and packs back to RGB, so a colour adopted from the object comes
+        // back up to 1/255 off per channel. That is not a choice the player made - treat it as
+        // the same colour, or the no-op guard above would wave the round-trip through as "new".
+        private static bool UguiDyeSameColour(int a, int b)
+        {
+            for (int shift = 8; shift <= 24; shift += 8)
+            {
+                int d = ((a >> shift) & 0xFF) - ((b >> shift) & 0xFF);
+                if (d > 1 || d < -1)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private int CurrentUguiDyePacked()
@@ -342,6 +400,15 @@ namespace HeartopiaMod
                 {
                     rows[i] = new KeyValuePair<byte, int>(rows[i].Key, packed);
                 }
+            }
+
+            if (target.Source == FurnitureDyeSource.Panel)
+            {
+                // The panel path stages into the game's own pending-edit dictionary and keeps
+                // target.Current in step itself; the player's Confirm sends it.
+                this.TryApplyFurnitureDyePanel(target, packed, out string panelStatus);
+                this.uguiDyeStatus = panelStatus;
+                return;
             }
 
             if (this.TryApplyFurnitureDye(rows, out string status))
@@ -450,6 +517,15 @@ namespace HeartopiaMod
 
         private void OnUguiDyeHexChanged(string text)
         {
+            // BUG FIX: the picker's own display refresh assigns HexField.text, and that fires this
+            // handler. Treating it as input staged the item's CURRENT colour the moment the window
+            // appeared - in panel mode a Confirm then charged a dye for a no-op, and in build mode
+            // merely focusing an object re-wrote its colours into the build save. Only the player's
+            // typing is input.
+            if (this.uguiDyeHexWriting)
+            {
+                return;
+            }
             if (!TryParseFurnitureDyeHex(text, out int packed))
             {
                 return; // half-typed input is not an error — just not a colour yet
@@ -475,6 +551,18 @@ namespace HeartopiaMod
                     rows.Add(new KeyValuePair<byte, int>(sub[j].Body, sub[j].DefaultColor));
                 }
             }
+            if (target.Source == FurnitureDyeSource.Panel)
+            {
+                // One part at a time: the panel stages the SELECTED part, so resetting everything
+                // would claim more than we did.
+                int p = Mathf.Clamp(this.uguiDyeSelectedPart, 0, target.Parts.Count - 1);
+                this.TryApplyFurnitureDyePanel(target, target.Parts[p].Sub[0].DefaultColor,
+                                               out string panelStatus);
+                this.AdoptUguiDyeColorFromTarget(target);
+                this.uguiDyeStatus = panelStatus;
+                return;
+            }
+
             if (this.TryApplyFurnitureDye(rows, out string status))
             {
                 for (int i = 0; i < rows.Count; i++)
@@ -527,13 +615,22 @@ namespace HeartopiaMod
                 // is harmless, but skip it while the field has focus so typing is never stomped.
                 if (!handle.HexField.isFocused)
                 {
-                    handle.HexField.text = hex;
+                    this.uguiDyeHexWriting = true;
+                    try
+                    {
+                        handle.HexField.text = hex;
+                    }
+                    finally
+                    {
+                        this.uguiDyeHexWriting = false;
+                    }
                 }
             }
 
             string header = "#" + target.StaticId
                 + (target.Parts.Count > 1 ? "  ·  part " + (this.uguiDyeSelectedPart + 1)
-                                            + "/" + target.Parts.Count : string.Empty);
+                                            + "/" + target.Parts.Count : string.Empty)
+                + (target.Source == FurnitureDyeSource.Panel ? "  ·  panel" : string.Empty);
             if (handle.HeaderShown != header)
             {
                 handle.HeaderShown = header;
@@ -726,7 +823,8 @@ namespace HeartopiaMod
             handle.PartRoots.Clear();
             handle.PartButtons.Clear();
 
-            bool many = target.Parts.Count > 1;
+            // Panel mode: the game's own tab strip is on screen, ours would be a second one.
+            bool many = target.Parts.Count > 1 && target.Source != FurnitureDyeSource.Panel;
             SetUguiGoActive(handle.PartsRow, many);
             if (!many)
             {
@@ -753,6 +851,14 @@ namespace HeartopiaMod
             }
             handle.PaletteRoots.Clear();
             handle.PaletteSwatches.Clear();
+
+            // Same reasoning as the part row: in panel mode the game already shows this item's
+            // swatches, and a second copy of them is noise.
+            SetUguiGoActive(handle.PaletteRow, target.Source != FurnitureDyeSource.Panel);
+            if (target.Source == FurnitureDyeSource.Panel)
+            {
+                return;
+            }
 
             int p = Mathf.Clamp(this.uguiDyeSelectedPart, 0, target.Parts.Count - 1);
             int[] palette = target.Parts[p].Palette;

@@ -246,9 +246,13 @@ namespace HeartopiaMod
             data.furnitureDyePickerEnabled = this.furnitureDyePickerEnabled;
             data.friendInteractUnlockEnabled = this.friendInteractUnlockEnabled;
             data.foragingAnimEnabled = this.foragingAnimEnabled;
+            data.farmNoRegrowthWait = this.farmNoRegrowthWait;
             data.skipCraftDyeAnimations = this.skipCraftDyeAnimations;
             data.autoLearnRecipes = this.autoLearnRecipes;
             data.wildAnimalAutoClaimVisitGifts = this.wildAnimalAutoClaimVisitGifts;
+            data.wildAnimalFeedSkipFiveStarFood = this.wildAnimalFeedSkipFiveStarFood;
+            data.wildAnimalFeedSkipRareFood = this.wildAnimalFeedSkipRareFood;
+            data.wildAnimalFeedSkipEgg = this.wildAnimalFeedSkipEgg;
             data.autoLikeOwnHome = this.autoLikeOwnHome;
             data.craftDirectSendEnabled = this.craftDirectSendEnabled;
             data.interactObstacleBypassEnabled = this.interactObstacleBypassEnabled;
@@ -651,9 +655,13 @@ namespace HeartopiaMod
             this.furnitureDyePickerEnabled = data.furnitureDyePickerEnabled;
             this.friendInteractUnlockEnabled = data.friendInteractUnlockEnabled;
             this.foragingAnimEnabled = data.foragingAnimEnabled;
+            this.farmNoRegrowthWait = data.farmNoRegrowthWait;
             this.skipCraftDyeAnimations = data.skipCraftDyeAnimations;
             this.autoLearnRecipes = data.autoLearnRecipes;
             this.wildAnimalAutoClaimVisitGifts = data.wildAnimalAutoClaimVisitGifts;
+            this.wildAnimalFeedSkipFiveStarFood = data.wildAnimalFeedSkipFiveStarFood;
+            this.wildAnimalFeedSkipRareFood = data.wildAnimalFeedSkipRareFood;
+            this.wildAnimalFeedSkipEgg = data.wildAnimalFeedSkipEgg;
             this.autoLikeOwnHome = data.autoLikeOwnHome;
             this.craftDirectSendEnabled = data.craftDirectSendEnabled;
             this.interactObstacleBypassEnabled = data.interactObstacleBypassEnabled;

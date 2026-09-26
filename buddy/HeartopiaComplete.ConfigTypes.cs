@@ -242,9 +242,16 @@ namespace HeartopiaMod
             public bool furnitureDyePickerEnabled;
             public bool friendInteractUnlockEnabled;
             public bool foragingAnimEnabled;
+            // "Don't Wait for Regrowth": a picked mushroom spot is not targeted again this run. Off by default.
+            public bool farmNoRegrowthWait;
             public bool skipCraftDyeAnimations;
             public bool autoLearnRecipes;
             public bool wildAnimalAutoClaimVisitGifts;
+            // Trough-feed food filters. Default on; absent from configs written before they were
+            // persisted, and XmlSerializer keeps the initializer for a missing element.
+            public bool wildAnimalFeedSkipFiveStarFood = true;
+            public bool wildAnimalFeedSkipRareFood = true;
+            public bool wildAnimalFeedSkipEgg = true;
             public bool autoLikeOwnHome;
             public bool craftDirectSendEnabled;
             public bool interactObstacleBypassEnabled;

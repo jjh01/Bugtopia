@@ -1039,6 +1039,20 @@ UI displays user-friendly status:
 
 Optional hotkeys: toggle auto fish, teleport fishing route (if configured).
 
+**Don't Wait for Regrowth** (Foraging settings, off by default): a mushroom spot picked during the
+run is not targeted again for 20 minutes. Mushrooms regrow as new entities 90–120 s after a pick, so
+a field never empties and Auto Farm would otherwise stay in it for the whole run; with the option
+on the scan runs dry once every spot is picked and the farm relocates to the next area, the way it
+already does for truffles (whose regrowth takes hours).
+
+**Fishing Locations with Walk to Nodes on:** hops between spots are walked (and driven, by the
+Foraging vehicle settings) instead of teleported. Fishing keeps running on the way — a cast, bite
+or battle stops the walk and it resumes once the session is over; an auto repair on the way (kit
+queued, in use, or its aura running) stops the walk the same way. Aura Farm is stopped when the
+route starts driving the walker. A spot the walker cannot reach (route refused, walk failed twice,
+300 s of travel) is skipped for the next one on the list; the teleport remains only when the walker
+is not available at all (a boss run) or every spot refused in a row.
+
 **Note:** Startup log explicitly states `AutoFish subsystem disabled` — refers to the **old** `AutoFishLogic` pipeline, not `AutoFishingFarm`.
 
 ### Insects (`InsectNetFarm`)
@@ -1558,7 +1572,8 @@ Full pipeline: [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#bag--warehouse-tr
 ### Wild animal feed (`WildAnimalFeedFeature`)
 
 - Scans **backpack** via `GetAllItem`; matches food allowed for the animal **group** (fullness table per `staticId` + star).
-- **Skip 5 Star Food** (default on): never uses 5★ food.
+- **Skip 5 Star Food** (default on): never uses 5★ food. This, Skip Rare Food and Skip Egg are saved in the config.
+- **Skip Rare Food** (default on): never uses the 31 fish that cannot be caught in sunny weather (rain/snow and/or rainbow only) — `WildAnimalFeedRareFishStaticIds`, generated with `tools/HeartopiaTables/conditional_spawns.py --weather-not 1`.
 - Picks food with highest score: bond EXP (favorites weighted) + fullness contribution.
 - Manual **Feed**; separate from daily quests.
 
