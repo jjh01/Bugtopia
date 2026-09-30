@@ -1025,7 +1025,7 @@ Tree/stone **patrol automation**:
 
 Behavior:
 
-1. Ensures fishing rod equipped (restores previous tool on disable).
+1. Ensures fishing rod equipped; disabling the farm leaves the currently held tool unchanged.
 2. Scans for fish shadows within detect range (15–200 m, default 60 m).
 3. Resolves targets via server/netId-aware game APIs on `HeartopiaComplete`.
 4. Casts, waits for bite, handles hook and **reel minigame** via `TrySetFishingPressed` (not legacy Input patches).
@@ -1081,7 +1081,7 @@ is not available at all (a boss run) or every spot refused in a row.
 
 ### Insects (`InsectNetFarm`)
 
-- Auto equips insect net; restores previous tool on stop.
+- Auto equips insect net; stopping the farm leaves the currently held tool unchanged.
 - Scans catchable insects in range (default 50 m).
 - Batch catch (default 3 per tick).
 - Optional **patrol teleport** through ~50 predefined world coordinates when no targets nearby.
@@ -1090,7 +1090,8 @@ is not available at all (a boss run) or every spot refused in a row.
 
 ### Birds (`BirdNetFarm`)
 
-- Auto equips bird scanner; multi-catch support (1–10, default 1).
+- Auto equips bird scanner; stopping the farm leaves the currently held tool unchanged.
+- Multi-catch support (1–10, default 1).
 - Capture modes: **Safe Capture** vs **Spam Capture**.
 - Perfect photo / auto-scare options.
 - Safety stop after 90 s continuous run; 60 s re-enable cooldown.
