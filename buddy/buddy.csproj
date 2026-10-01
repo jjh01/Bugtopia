@@ -304,10 +304,13 @@
     <Compile Include="EmoteUnlockFeature.cs" />
     <Compile Include="PaintStyleUnlockFeature.cs" />
     <Compile Include="PaintStyleUnlockFeature.JointBuild.cs" />
+    <Compile Include="FreePlaceRotateUnlockFeature.cs" />
     <Compile Include="HeartopiaComplete.UguiColorPicker.cs" />
     <Compile Include="FurnitureDyeFeature.cs" />
     <Compile Include="FurnitureDyePanelFeature.cs" />
     <Compile Include="ActionPanelFeature.cs" />
+    <Compile Include="AvatarStudioFeature.cs" />
+    <Compile Include="AvatarStudioBackgrounds.cs" />
     <Compile Include="ControllerNameResolver.cs" />
     <Compile Include="ForagingAnimationFeature.cs" />
     <Compile Include="ForagingAnimationFeature.SeaClean.cs" />
@@ -363,6 +366,7 @@
     <Compile Include="HeartopiaComplete.UguiShellTabIndices.cs" />
     <Compile Include="HeartopiaComplete.UguiAboutContent.cs" />
     <Compile Include="HeartopiaComplete.UguiResearchContent.cs" />
+    <Compile Include="HeartopiaComplete.UguiOrderShopContent.cs" />
     <Compile Include="HeartopiaComplete.UguiSettingsMainContent.cs" />
     <Compile Include="HeartopiaComplete.UguiKeybindsContent.cs" />
     <Compile Include="HeartopiaComplete.UguiThemeContent.cs" />
@@ -389,6 +393,7 @@
     <Compile Include="HeartopiaComplete.UguiHomelandFarmContent.cs" />
     <Compile Include="HeartopiaComplete.UguiDailyQuestsContent.cs" />
     <Compile Include="HeartopiaComplete.UguiActionPanelContent.cs" />
+    <Compile Include="HeartopiaComplete.UguiAvatarStudioContent.cs" />
     <Compile Include="HeartopiaComplete.UguiQuestAssistantWindowContent.cs" />
     <Compile Include="HeartopiaComplete.UguiFeaturesMainContent.cs" />
     <Compile Include="HeartopiaComplete.UguiFeaturesFoodRepairContent.cs" />
@@ -453,9 +458,12 @@
     <Compile Include="HeartopiaResourceVisualEsp.cs" />
     <Compile Include="HelperPaths.cs" />
     <Compile Include="InsectNetFarm.cs" />
+    <Compile Include="LanguageSwitchButtonFeature.cs" />
+    <Compile Include="LocalizationFallbackFeature.cs" />
     <Compile Include="LocalizationManager.cs" />
     <Compile Include="LodSettingsFeature.cs" />
     <Compile Include="GameLodFeature.cs" />
+    <Compile Include="GameLodBrgRebuild.cs" />
     <Compile Include="FpsWatchdogFeature.cs" />
     <Compile Include="UgcTextureCacheFeature.cs" />
     <Compile Include="HideJumpButtonFeature.cs" />
@@ -483,7 +491,6 @@
     <Compile Include="StealthBlockFeature.Mono.cs" />
     <Compile Include="BuildingFreeRotateFeature.cs" />
     <Compile Include="BunnyHopFeature.cs" />
-    <Compile Include="ForceLocomotionFeature.cs" />
     <Compile Include="SwimSprintTweakFeature.cs" />
     <Compile Include="JumpTuningFeature.cs" />
     <Compile Include="GameUiTimingsFeature.cs" />
@@ -491,6 +498,7 @@
     <Compile Include="AutoIceSkatingFeature.cs" />
     <Compile Include="SnowSculptureFeature.cs" />
     <Compile Include="SandSculptureFeature.cs" />
+    <Compile Include="SandRoughSelectHook.cs" />
     <Compile Include="SeaCleanQteFeature.cs" />
     <Compile Include="CleanupBossFeature.cs" />
     <Compile Include="SeaCleanBannerHideFeature.cs" />
@@ -527,6 +535,7 @@
     <Compile Include="ShopBuyAllFeature.cs" />
     <Compile Include="FaceShopBuyAllFeature.cs" />
     <Compile Include="ResearchDiagnosticsFeature.cs" />
+    <Compile Include="OrderShopFeature.cs" />
     <Compile Include="ShopDumpFeature.cs" />
     <Compile Include="ShopQuickBuyFeature.cs" />
     <Compile Include="ShopQuickSellFeature.cs" />

@@ -51,7 +51,8 @@ namespace HeartopiaMod
         // ----------------------------------------------------------------------------------------
         internal bool gameLodFurnitureEnabled = false;
         internal int gameLodFurnitureMaxObjects = 1500;    // 60..5000 (game default 60)
-        internal int gameLodFurnitureDistance = 9999;      // 100..9999 m (game default 80/30/30/24)
+        internal int gameLodFurnitureDistance = 150;       // 100..300 m, other homes + town (game default 80/30/30/24)
+        internal int gameLodFurnitureOwnHomeDistance = 9999; // 100..9999 m, own home only (LoaderManager.mydis)
         internal int gameLodFurnitureMeshDistance = 1000;  // 100..2000 m (game default 100)
 
         internal bool gameLodBrgBiasEnabled = false;
@@ -82,6 +83,12 @@ namespace HeartopiaMod
 
         internal bool gameLodShadowEnabled = false;
         internal float gameLodShadowDistance = 300f;       // 50..800 m
+
+        // Unity texture mipmap streaming budget (QualitySettings.streamingMipmapsMemoryBudget).
+        // The game ships 512 MB; with the extended draw distances above the desired texture
+        // memory runs past it and Unity starts dropping mip levels.
+        internal bool gameLodTextureBudgetEnabled = false;
+        internal int gameLodTextureBudgetMb = 2048;        // 512..4096 MB (game default 512)
 
         // Landscape HLOD proxies (Unity.HLODSystem, IL2CPP side): scene-baked low-poly merged
         // meshes swap to real objects inside hlod1/2LoadAndVisDistance — the multiplier pushes
@@ -141,6 +148,7 @@ namespace HeartopiaMod
         private bool gameLodSignificanceRevertPending = false;
         private bool gameLodNineCellRevertPending = false;
         private bool gameLodShadowRevertPending = false;
+        private bool gameLodTextureBudgetRevertPending = false;
         private bool gameLodVegetationRebakePending = false;
         private bool gameLodHlodRevertPending = false;
         private bool gameLodXdLodRevertPending = false;
@@ -152,6 +160,7 @@ namespace HeartopiaMod
         internal string gameLodSignificanceStatus = "";
         internal string gameLodNineCellStatus = "";
         internal string gameLodShadowStatus = "";
+        internal string gameLodTextureBudgetStatus = "";
         internal string gameLodHlodStatus = "";
         internal string gameLodXdLodStatus = "";
 
@@ -187,6 +196,10 @@ namespace HeartopiaMod
         // Shadow original captured once per apply-session (restored on revert).
         private bool gameLodShadowOriginalCaptured = false;
         private float gameLodShadowOriginal = 0f;
+
+        // Texture budget original, captured once before the first write (restored on revert).
+        private bool gameLodTextureBudgetOriginalCaptured = false;
+        private float gameLodTextureBudgetOriginal = 0f;
 
         // NineCell per-netId memory: orig = the game's own range when first seen, lastTarget = the
         // range we last forced. A live range differing from lastTarget means the game re-created the
@@ -497,15 +510,19 @@ namespace HeartopiaMod
                 }
             }
 
+            // Runs regardless of the other sections: it fixes a game bug, not a quality setting.
+            this.GameLodTickBrgRebuild();
+
             bool anyEnabled = this.gameLodFurnitureEnabled
                 || this.gameLodBrgBiasEnabled || this.gameLodSignificanceOffEnabled
                 || this.gameLodNineCellEnabled || this.gameLodShadowEnabled
-                || this.gameLodHlodEnabled || this.gameLodXdLodEnabled;
+                || this.gameLodHlodEnabled || this.gameLodXdLodEnabled
+                || this.gameLodTextureBudgetEnabled;
             bool anyPending = this.gameLodFurnitureRevertPending
                 || this.gameLodBrgBiasRevertPending || this.gameLodSignificanceRevertPending
                 || this.gameLodNineCellRevertPending || this.gameLodShadowRevertPending
                 || this.gameLodVegetationRebakePending || this.gameLodHlodRevertPending
-                || this.gameLodXdLodRevertPending;
+                || this.gameLodXdLodRevertPending || this.gameLodTextureBudgetRevertPending;
             // With verbose logging on, the tick also runs idle just to drive the resolve probe
             // (read-only metadata sweep) until every type is proven resolved on this build.
             bool probeWanted = MasterLogGameLod && !this.gameLodResolveProbeAllOk;
@@ -857,6 +874,32 @@ namespace HeartopiaMod
                     ? ("ok (" + this.gameLodShadowDistance.ToString("F0") + " m)") : shadowStatus));
             }
 
+            // Texture streaming budget (re-asserted: quality-preset changes reset it).
+            if (this.gameLodTextureBudgetRevertPending)
+            {
+                if (this.TryGameLodApplyTextureBudget(true, out string budgetRevertStatus))
+                {
+                    this.gameLodTextureBudgetRevertPending = false;
+                    this.gameLodTextureBudgetOriginalCaptured = false;
+                    this.gameLodTextureBudgetStatus = this.L("Reverted to game defaults.");
+                    this.GameLodLogOnce("texture budget revert: ok");
+                }
+                else
+                {
+                    this.gameLodTextureBudgetStatus = budgetRevertStatus;
+                    this.GameLodLogOnce("texture budget revert: " + budgetRevertStatus);
+                }
+            }
+            else if (this.gameLodTextureBudgetEnabled)
+            {
+                bool budgetOk = this.TryGameLodApplyTextureBudget(false, out string budgetStatus);
+                this.gameLodTextureBudgetStatus = budgetOk
+                    ? this.LF("Texture budget: {0} MB", this.gameLodTextureBudgetMb)
+                    : budgetStatus;
+                this.GameLodLogOnce("texture budget apply: " + (budgetOk
+                    ? ("ok (" + this.gameLodTextureBudgetMb + " MB)") : budgetStatus));
+            }
+
             // Vegetation: keep our PC_LODBIAS asserted, then run any queued rebake — but never
             // while the world is still loading (the rebake re-creates every instance-block
             // material, which is exactly the kind of work that stretches a loading screen).
@@ -1176,6 +1219,39 @@ namespace HeartopiaMod
             return cache;
         }
 
+        // Unity-side setting, plain interop: no AuraMono involved.
+        private bool TryGameLodApplyTextureBudget(bool revert, out string status)
+        {
+            try
+            {
+                float current = QualitySettings.streamingMipmapsMemoryBudget;
+                if (!revert && !this.gameLodTextureBudgetOriginalCaptured)
+                {
+                    // Anything above 1024 MB can only be a leftover of our own write.
+                    this.gameLodTextureBudgetOriginal = current > 0f && current <= 1024f ? current : 512f;
+                    this.gameLodTextureBudgetOriginalCaptured = true;
+                    this.GameLodLogOnce("texture budget: original captured "
+                        + this.gameLodTextureBudgetOriginal.ToString("F0") + " MB");
+                }
+
+                float value = revert
+                    ? (this.gameLodTextureBudgetOriginalCaptured ? this.gameLodTextureBudgetOriginal : 512f)
+                    : Mathf.Clamp(this.gameLodTextureBudgetMb, 512, 4096);
+                if (Mathf.Abs(current - value) > 0.5f)
+                {
+                    QualitySettings.streamingMipmapsMemoryBudget = value;
+                }
+            }
+            catch (Exception ex)
+            {
+                status = "streamingMipmapsMemoryBudget: " + ex.Message;
+                return false;
+            }
+
+            status = "ok";
+            return true;
+        }
+
         // ----------------------------------------------------------------------------------------
         // Section 1: furniture / homeland streaming (LoaderManager + LayerDistanceCulling)
         // ----------------------------------------------------------------------------------------
@@ -1200,7 +1276,11 @@ namespace HeartopiaMod
                 {
                     this.GameLodLogOnce("furniture: LoaderManager instance ok ("
                         + this.GetAuraMonoClassDisplayName(auraMonoObjectGetClass(loaderObj)) + ")");
-                    int dist = Mathf.Clamp(this.gameLodFurnitureDistance, 100, 9999);
+                    // Capped at 300 m: LoaderManager.CalLoad walks every area serially and each voxel
+                    // BFS advances one ring per frame (tiers serialized), so the pass length grows
+                    // linearly with distance (Global/Season areas x2 on top). 800+ m took tens of
+                    // seconds before the own home was even reached.
+                    int dist = Mathf.Clamp(this.gameLodFurnitureDistance, 100, 300);
                     if (!this.TryCreateGameLodIntArray(new[] { dist, dist, dist, dist }, out IntPtr otherDisArr)
                         || otherDisArr == IntPtr.Zero)
                     {
@@ -1211,7 +1291,10 @@ namespace HeartopiaMod
                     uint otherPin = AuraMonoPinNew(otherDisArr);
                     try
                     {
-                        if (!this.TryCreateGameLodIntArray(new[] { dist, dist, dist, dist }, out IntPtr myDisArr)
+                        // Own home gets its own distance: SetParam routes mydis to the area whose key is
+                        // PlayerDataCenter.homeNetId and otherDis to every other home and town area.
+                        int ownDist = Mathf.Clamp(this.gameLodFurnitureOwnHomeDistance, 100, 9999);
+                        if (!this.TryCreateGameLodIntArray(new[] { ownDist, ownDist, ownDist, ownDist }, out IntPtr myDisArr)
                             || myDisArr == IntPtr.Zero)
                         {
                             status = "int[] build failed";
@@ -1229,26 +1312,13 @@ namespace HeartopiaMod
                                 return false;
                             }
 
-                            // Pacing: FIXED at the game's own vanilla per-frame rate (3 objects/frame,
-                            // same as ObserverPanel's default), deliberately NOT scaled up with `max`
-                            // anymore (2026-07-26). It used to scale (max/500, up to 10/frame) so a
-                            // big raised cap would visually fill in within a few seconds instead of
-                            // ~28s — see git history — but that meant a high max+distance dumped
-                            // hundreds of new furniture instances into the scene within a couple of
-                            // seconds after a teleport/town-entry. A meaningful fraction of "furniture"
-                            // is UGC-photo-bearing (frames/screens/puzzles), and each one kicks off its
-                            // own texture download the instant it's created — so a fast fill-in meant a
-                            // burst of simultaneous downloads far beyond what the base game (capped at
-                            // 60 objects total) ever has to handle at once, which is the confirmed cause
-                            // of the blank/white UGC textures (see ugc-texture-cache-blank-fix project
-                            // memory: purge + raising the LRU cache to 2000 did NOT fix it; disabling
-                            // this draw-distance extension did). Keeping the per-frame rate at the
-                            // vanilla constant instead trades faster pop-in (now spread over more
-                            // seconds at a high max/distance) for not overwhelming the download
-                            // pipeline — max object count and distance are UNCHANGED, only how fast the
-                            // client walks up to that ceiling.
+                            // Pacing: 12 activations/frame (vanilla 3). The activation queue is FIFO and
+                            // shared by every area, so at 3/frame a raised cap took tens of seconds to
+                            // fill in. The 2026-07-26 cut back to 3 was aimed at blank UGC photos, whose
+                            // real cause later turned out to be BrgManager.ForeceLOD0 (removed; see
+                            // project memory brg-forcelod0-destroys-material-override), not the rate.
                             int max = Mathf.Clamp(this.gameLodFurnitureMaxObjects, 60, 5000);
-                            int loadNum = 3;
+                            int loadNum = 12;
                             int unloadNum = 20;
                             int strucLoadNum = 20;
                             int meshDis = Mathf.Clamp(this.gameLodFurnitureMeshDistance, 100, 2000);
@@ -3062,6 +3132,18 @@ namespace HeartopiaMod
             this.nextGameLodApplyAt = 0f;
         }
 
+        internal void SetGameLodTextureBudgetEnabled(bool value)
+        {
+            if (this.gameLodTextureBudgetEnabled == value)
+            {
+                return;
+            }
+            this.gameLodTextureBudgetEnabled = value;
+            FeatureLog.Toggle("GameLod", value, "TextureBudget");
+            this.gameLodTextureBudgetRevertPending = !value;
+            this.nextGameLodApplyAt = 0f;
+        }
+
         internal void RequestGameLodVegetationRebake()
         {
             this.GameLodWriteVegetationPref();
@@ -3098,7 +3180,8 @@ namespace HeartopiaMod
         private void SyncGameLodAfterConfigLoad()
         {
             this.gameLodFurnitureMaxObjects = Mathf.Clamp(this.gameLodFurnitureMaxObjects <= 0 ? 1500 : this.gameLodFurnitureMaxObjects, 60, 5000);
-            this.gameLodFurnitureDistance = Mathf.Clamp(this.gameLodFurnitureDistance <= 0 ? 9999 : this.gameLodFurnitureDistance, 100, 9999);
+            this.gameLodFurnitureDistance = Mathf.Clamp(this.gameLodFurnitureDistance <= 0 ? 150 : this.gameLodFurnitureDistance, 100, 300);
+            this.gameLodFurnitureOwnHomeDistance = Mathf.Clamp(this.gameLodFurnitureOwnHomeDistance <= 0 ? 9999 : this.gameLodFurnitureOwnHomeDistance, 100, 9999);
             this.gameLodFurnitureMeshDistance = Mathf.Clamp(this.gameLodFurnitureMeshDistance <= 0 ? 1000 : this.gameLodFurnitureMeshDistance, 100, 2000);
             this.gameLodBrgBias = Mathf.Clamp(this.gameLodBrgBias <= 0f ? 2f : this.gameLodBrgBias, 1f, 4f);
             // Legacy configs stored a raw PC_LODBIAS pref (1..10); migrate it to the multiplier.
@@ -3120,6 +3203,7 @@ namespace HeartopiaMod
             this.GameLodCaptureVegetationBaseline();
             this.gameLodNineCellMult = Mathf.Clamp(this.gameLodNineCellMult <= 0f ? 2f : this.gameLodNineCellMult, 1f, 5f);
             this.gameLodShadowDistance = Mathf.Clamp(this.gameLodShadowDistance <= 0f ? 300f : this.gameLodShadowDistance, 50f, 800f);
+            this.gameLodTextureBudgetMb = Mathf.Clamp(this.gameLodTextureBudgetMb <= 0 ? 2048 : this.gameLodTextureBudgetMb, 512, 4096);
             this.gameLodHlodMult = Mathf.Clamp(this.gameLodHlodMult <= 0f ? 2f : this.gameLodHlodMult, 1f, 4f);
 
             // PC_LODBIAS persists in the registry across sessions. Put the GAME's own baseline
