@@ -995,6 +995,17 @@ Server-command style farming **without teleporting** to each node:
     dead on this build — XDT* entity resolution is Mono-only.
   - Bounded by the **Collect Wait Max** slider (4–30 s, default 12, `auraCollectWaitTimeout`);
     priority-anchor dwells keep the old fixed delay.
+- **Fruit-tree landing stand-off:** a node hop to an **Apple Tree** / **Mandarin Tree** lands
+  **1.1 m beside the trunk** (plus a 0.3 m drop-in lift), not on the tree's pivot. Landing on the
+  pivot put the player inside the trunk, and whether the game's collision then pushed them out or
+  left them wedged in the tree varied from hop to hop — the post-warp settle kept re-writing the
+  pivot position for 30 frames against that push. 1.1 m is the walker's own collect stand-off
+  (`FarmWalkCollectStandoff`), inside the measured 1.5 m aura trigger radius. The side is chosen
+  geometrically (Unity physics casts are blind in this game): eight candidates around the trunk,
+  scored by clearance from every other scanned gatherable, starting from the side the player is
+  coming from. `lastNodePosition`, marker matching, cooldown stamping and the collect wait all keep
+  the true tree position. Not applied under Stealth Foraging, whose hop dives under the ground
+  where the trunk is irrelevant (`ApplyFruitTreeTeleportStandoff`, `HeartopiaComplete.Farm.cs`).
 
 #### Meteorites (starfall rocks)
 
