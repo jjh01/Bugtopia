@@ -745,8 +745,6 @@ namespace HeartopiaMod
             this.ProcessNoCollisionOnUpdate();
             this.ProcessColdLedgerOnUpdate();
             this.ProcessBunnyHopOnUpdate();
-            this.ProcessForceLocomotionOnUpdate();
-            this.ProcessForceSwimInputOnUpdate();
             this.ProcessSwimSprintTweakOnUpdate();
             this.ProcessJumpTuningOnUpdate();
             this.ProcessGameUiTimingsOnUpdate();
@@ -764,6 +762,8 @@ namespace HeartopiaMod
             this.ProcessQuietPopupsOnUpdate();
             this.ProcessEmoteUnlockOnUpdate();
             this.ProcessPaintStyleUnlockOnUpdate();
+            this.ProcessFreePlaceRotateUnlockOnUpdate();
+            this.ProcessLanguageButtonLoginRevealOnUpdate();
             this.ProcessForagingAnimOnUpdate();
             this.ProcessCraftAnimationSkipOnUpdate();
             this.ProcessTutorialBlockOnUpdate();
@@ -824,6 +824,8 @@ namespace HeartopiaMod
             Breadcrumbs.Phase("ou.uguiquest");
             this.ProcessFriendInteractUnlockOnUpdate();
             this.ProcessUguiActionPanelOnUpdate();
+            // Avatar Studio: follows the game's Generate Avatar panel (AvatarStudioFeature.cs).
+            this.ProcessUguiAvatarStudioOnUpdate();
             this.ProcessUguiQuestAssistantWindowOnUpdate();
             // Theme dirty-consumption + debounced SaveUiTheme flush (HeartopiaComplete.UiKit.cs).
             // Used to piggyback on EnsureThemeStyles at the top of OnGUI; with the IMGUI menu

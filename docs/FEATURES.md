@@ -91,6 +91,16 @@ Inventory scan / sort / filter rules for these (and Auto Sell, Bag transfer, pet
 - **Status overlay:** Optional HUD showing active features and farm states.
 - **Notifications:** Toast-style messages inside the mod UI (position configurable).
 
+### Risk marks
+
+A red **!** next to a row flags a setting with a high detection risk (see the menu risk review).
+Conditional: Auto Collect Bubbles (on, with a collect radius above 3 m or unlimited), Insects →
+Teleport (on), Noclip (speed × boost above 4.3 m/s,
+the server's on-foot threshold), Custom Jump (on), Game Speed (above 1x), Stealth Foraging (on),
+Walk to Nodes (off), Auto Sell Interval (under 60 s), Homeland Farm Privacy Pause (under 10 m),
+Sea Clean radius (above 7 m). Kit helpers: `CreateUguiRiskMark` (checkbox gutter) and
+`CreateUguiRiskMarkAfterLabel` (trails a slider caption), both in `HeartopiaComplete.UguiKit.cs`.
+
 ### Game speed
 
 Hotkeys (all rebindable, default unbound):
@@ -132,6 +142,53 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
 
 ---
 
+### Avatar Studio (floating window, Generate Avatar panel)
+
+- Appears by itself while the game's **Generate Avatar** panel
+  (`PersonalInformationCreateHeadIconPanel`, Profile → avatar → create) is open and disappears with
+  it. The × hides it until the panel is opened again. Nothing is added to the mod menu.
+- **Pose** — the panel's own 6 portrait poses (`TableSnapshotAction`) plus every `Singleaction`
+  emote, named in the game's language and read live from `TableData`, so new emotes appear without a
+  mod update. `(loop)` marks emotes that keep playing, `(posture)` sit/lie/squat.
+- **Frame** — Pause freezes the model; the slider then scrubs the CURRENT animation state frame by
+  frame (30 fps). Moving the slider while it plays pauses it first. A multi-part emote shows the part
+  it was in when paused; press Play, pause again in the next part to reach it.
+  Freezing the animator does not freeze the ACTION playing the emote: `PlayerSocialAction` has a
+  35 s real-time safety timeout (`ActionClip._safe_time_check`) and used to end the emote under a
+  paused model, dropping it back to the portrait pose. While paused, the running clip's timer is
+  parked; Play gives it back its full `duration`.
+- **Face** — the 63 `anim_facestation_*` clips on the model (the panel exposes 8): tongue, scared,
+  sleep, pain, flustered, eat/drink, the laugh variants and the transition clips. One clip at a time;
+  blending two does not combine them (measured).
+- **Zoom** — 0.25x..3x on the avatar camera's field of view; below 1x shows the whole body, which
+  also lets hand gestures below the chest into the frame. **Rotation** — ±180° on the model pivot,
+  composing with the panel's own ±30° buttons. **Move X / Y** — ±1.5 world units, as sliders or by
+  dragging the model with the RIGHT mouse button inside the capture circle (the left button stays the
+  panel's own ±0.1 drag). The offset goes on `AvatarCamera`, whose parent `camera@go` is what the
+  panel's drag writes, so the two add up; the drag speed follows zoom and depth, so the model stays
+  under the cursor. **Reset view** returns zoom, rotation and move.
+- **Background** — the panel's backdrop is a 3D plane (`background_plane@frame/backgroundimage01..10`),
+  so any material on the visible plane is captured. The list offers: *Game* (hands control back to the
+  panel's own button), *Panel 1..10* (its own ten, picked directly), 15 scene backgrounds the game
+  ships for other screens (mini pass Dream/Foison/Kindergarten/Sauna/Star River/Street/Tribe,
+  research, gacha 1001-1003, pay shop 1-2; loaded by the IL2CPP `ResManager.LoadObjectSync`
+  through the interop and unloaded on close), and *File:* entries for every PNG/JPG in
+  `%LocalLow%/Bugtopia/AvatarBackgrounds` (the **Folder** button creates and opens it; the list
+  rescans every 2 s). Files are cover-cropped to the 2:1 the game's backgrounds use. A pick follows
+  the plane if the panel's button switches it. The two private-island backgrounds are sky cubemaps
+  and are left out.
+- ⚠ The panel object is POOLED, not re-instantiated: anything written to it outlives a close/reopen.
+  That is why every value is captured at open and put back on close — a manual edit that skips this
+  (as a bridge test once did to `AvatarCamera`) stays wrong until the game restarts.
+- **Why it is safe to use:** Confirm grabs a screen rectangle and uploads it as a plain picture; the
+  server only receives the photo id (`EditAlternativeAvatarImages`), never the pose or the face. The
+  window hides itself for the capture (the panel switches `blackbg@go` off for exactly that window),
+  so it cannot be baked into the avatar even when dragged over the circle. Camera and pivot are put
+  back when the panel closes.
+- Implementation: `AvatarStudioFeature.cs` (detection via `UIPanelOpen/Closing/CloseEvent` +
+  `UIManager.GetView`, model commands through AuraMono, camera/pivot/face on the Unity side) +
+  `HeartopiaComplete.UguiAvatarStudioContent.cs` (window). Verbose trace: `MasterLogAvatarStudio`.
+
 ## Self Tab
 
 ### Camera Toggle (Mouse Look)
@@ -160,9 +217,12 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
   - *on foot*: nothing parks the game's poster, so the mod drives the game's **own** conditional
     sender (`BasePlayerComponent.TrySendSelfTransform(false)`) — it posts only on a real change, so
     there are no duplicate packets when the player tick already sent this frame, plus one forced post
-    on release. Note the server's on-foot threshold is `SpeedThresholdWalk` (**4.3**), below the
-    noclip speed slider's minimum (5).
-  - Off = the mod posts nothing while noclip drives.
+    on release. Note the server's on-foot threshold is `SpeedThresholdWalk` (**4.3**). The speed
+    slider goes down to 3, and the Noclip row shows a red **!** while speed × boost is above 4.3
+    (the boost multiplier applies while Shift / a gamepad shoulder button is held).
+  - Off = the mod posts nothing extra while noclip drives. On foot the game's own poster still
+    sends the driven position, so the server sees the flight either way; only in a vehicle is the
+    poster parked, and there the position arrives as one jump on release.
 
 ### Disable OOB Teleport
 
@@ -243,6 +303,40 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
   hover is re-pinned to the dive target either way.
 - Log: `[SelfRespawn] the server removed our player (respawn #n)` / `player back (…)`.
   Source: `buddy/SelfRespawnGuardFeature.cs`.
+
+### Untranslated game strings (always on)
+
+- Some game strings exist only in Chinese: in `designTable.db` 4927 of 41826 rows have no `en` text
+  (same in the global and the China build, 2026-09-30). The game shows those as `LOC:<hash>`, e.g. the
+  task conditions of "Scenic Dreamweave" (`LOC:1306391685  0/1`). The mod shows the Chinese original
+  instead — the same fallback the game's own `Localize` applies to an empty string.
+- How: once per world load, one query on the game's own `designTable.db` connection lists the rows
+  missing the current language, decrypts their `zhHans` text with the game's `GetDecryptedData`, and
+  puts it into the design table's lookup cache (`LocalizationDb._cache`, keyed by hash). No hook: the
+  native `GetText` returns the cached text like any translation. ~27 ms for 4927 rows. Labels already on
+  screen are re-resolved once; a language switch re-enters the world and refills for the new language.
+  Nothing happens while the game language is Simplified Chinese.
+- Log: `[LocFallback] language 2: column en: N untranslated strings now show the Chinese original, …`.
+  Source: `buddy/LocalizationFallbackFeature.cs`.
+
+### Language switch button on the China build (always on)
+
+- The China build (TapTap CN) hides Settings → "切换语言 / Switch language": `SettingPanel.OnStart`
+  shows it only when `LoginSystem.IsOverSea`, and that build never sets the flag. The button, its
+  handler, `LanguageSwitchPanel`, all 12 languages and every translation are otherwise intact.
+- The mod re-activates the button on `UIPanelOpenEvent` (dispatched right after `OnStart`), found by
+  its hierarchy path under `XDUIRoot/Full/SettingPanel(Clone)`. On the global build it is already
+  visible and nothing happens.
+- The login screen opens the same `SettingPanel`, but event hooks install only once a world is up, so
+  there a Unity-only check takes over: `GameObject.Find` twice a second until the panel shows, then an
+  `activeSelf` read per frame on the cached button. No Mono is touched before the world.
+  `LoginPanel`'s own `language@btn` is not touched (the global build hides it too).
+- Picking a language in a world re-enters it through the game's own loading screen; on the login
+  screen the game closes its panels and reopens `LoginPanel` in the new language. English needs the
+  font-sweep fix in `UguiKitTmp` (the mod must not hold the game's `fonts_*.ab`), and the strings the
+  game never translated show in Chinese (previous section).
+- Log: `[LanguageButton] settings language button was hidden by the game (China build) — shown.`
+  Source: `buddy/LanguageSwitchButtonFeature.cs`.
 
 ### Skip Craft / Dye Animations
 
@@ -487,6 +581,39 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
   Treat surviving a relog as the only proof.
 - Toggle persisted in config (`paintStyleUnlockEnabled`). Implementation:
   `PaintStyleUnlockFeature.cs`; UI row in `HeartopiaComplete.UguiBuildingContent.cs`.
+
+### Building — Free place & rotate for all items (Free Placement list: Self → Building and the floating Move Panel)
+
+- Lets the game's own **Free** rotation (1° steps) and free placement be chosen for the items it
+  blacklists from them: whole entity types `wall` (209), `floor` (214), `quarterwall` (227),
+  `lighting` (55), plus 360 staticIds (77 staircases, fan terraces, platforms, pools, cubes,
+  windows, pillars, glass floors, Ice Rink Flooring 35383 …) — table `FreePlaceAndRotateBlackList`.
+- The rotation is snapped once, at confirm, in `BuildSingle.GenConfirmOption` with
+  `EffectiveAnglePrecision(element.anglePrecision, settings.rotatePrecision)`, which returns **1**
+  whenever the mode is Free, and `GodCraftMode.OnUpdate` copies `HomelandSystem.rotatePrecision`
+  into those settings every frame. The blacklist is enforced **only in the UI**
+  (`BuildStatusPanel` / `SimulationBuildStatusPanel.ApplyFreePlaceRotateBlackList`, reached from
+  `EnableTarget`), which forces Free → Fixed90 for a listed object. `EnableTarget` skips that for a
+  group — the gap a player used to leave Ice Rink Flooring at 30° with `anglePrecision` 90.
+- Implementation: no detour. The two `HashSet<int>` lists on `BuildModule`
+  (`_freePlaceRotateStaticIdBlackList`, `_freePlaceRotateEntityTypeBlackList`) are emptied with
+  `Clear()` after first calling the game's own `InitFreePlaceRotateBlackList()` (so its table
+  source is recorded and the lists are not rebuilt behind our back). A 1 Hz count check re-clears.
+  `IsFreePlaceRotateBlackListed` is not detoured on purpose: it has two one-argument overloads,
+  `(int)` and `(IBuildObject)`, that name + arity cannot tell apart. Switching off calls the init
+  once, restoring the lists from the table.
+- One list gates both free rotation and free placement, so both become available; neither is
+  forced. Refocus the object after toggling — the panel re-evaluates on the next focus change.
+- **What keeps a free angle after save (verified live):** Ice Rink Flooring (35383) — yes;
+  walls — yes; plain **Flooring — no**, it snaps back to 90°. Other listed items are untested.
+  The wire carries whole degrees (`ToBuildingRotValue` packs `(x<<20)|(z<<10)|y`), so the floor
+  snap is the storage format, not the client: a plain floor is kept as
+  `ServerLocationCollection` / `LocationCollection` — an axis-aligned box in grid cells plus
+  `rotation /= 90` (integer division) — and `BakeRenderingProcessorFloor` draws it with
+  `Quaternion.identity`, using rotation only to pick the plank direction. Do NOT generalise this to
+  all structure: `BakeRenderingProcessorWall` decodes the same `LocationCollection`, yet walls keep
+  their angle, so off-grid walls evidently end up in another representation (not yet traced).
+- Toggle persisted as `freePlaceRotateUnlockEnabled`. Implementation: `FreePlaceRotateUnlockFeature.cs`.
 
 ### Building — Free colour picker for furniture (Self → Building sub-tab)
 
@@ -866,6 +993,9 @@ Status strings: `IDLE`, `TELEPORTING...`, `GATHERING...`, etc.
 
 Optional companion toggle in **Foraging → SETTINGS** (persisted, default off, `StealthForagingFeature.cs`).
 It only does anything **while the farm is actually running** — configuring it on an idle farm changes nothing.
+The row is **hidden while Walk to Nodes is on** (the two are mutually exclusive — each clears the
+other), and carries a red **!** while it is on; Walk to Nodes carries one while it is *off*,
+since the farm then teleports between nodes.
 
 While engaged:
 
@@ -1388,12 +1518,11 @@ Cook commands (`PrepareCooking`/`StartCooking`/`InteractWithCooker`/`ContinueCoo
 - **by staticId** — splits a homogeneous kitchen: 灶台 `370001` and 简约灶台 `370002` are different ids with an identical 141-recipe menu. This was the live path on builds where the burner view reports cookware `0` (observed in-world: `Captured cookerStaticId=370001 cookerType=0`), so the minority style was silently dropped from every capture.
 - **by cookware** — the same value is shared by cookers with different menus (the stove and the elephant food truck are both cookware Boil), and conversely one menu can span several cookware values, so it splits and merges in the wrong places both ways.
 
-**`cookerType == 999` marks a cooker the client has switched OFF**, and it is excluded from grouping entirely (no census entry, no merge, no pin). Established in-world 2026-09-02:
+**`cookerType == 999` marks a cooker with no recipe menu on the global build**, and it is excluded from grouping entirely (no census entry, no merge, no pin). It is plain table data:
 
-- The table file is accurate — parsing `cn.bytes` row by row gives `370006 → 2`, `370010 → 3`, `370014 → 5`, `370019 → 6`, matching `tools/HeartopiaTables`.
-- The live object is that same row (`GetCooker(370006).prefabPath` = `…/p_cooker_season_sandshop_cooker_1`) and its `cookwareType` reads **correctly** (2), while `cookerType` reads 999. A parse desync is ruled out: it would corrupt the adjacent field too. One field is overwritten at runtime, on cookers only.
-- `TableCookingRecipe` is **not** gated: live `GetCookingRecipe` returns cookerType 2 / 3 / 5 / 6 / 15 for `45129` / `45216` / `45254` / `45274` / `45532`, exactly as in the file. So the menu buckets exist and are populated, while the cookers that own them are redirected to an empty `999` bucket — `GetAllRecipes` returns 0 for every one of them, i.e. the game itself will not serve their menu.
-- Switched off is the contiguous id range **370006-370023** (it is not "seasonal vs not": winter cookers `370024`/`370025` work, the autumn cooker `370022` does not). No `TableCooker.OnAfterRead` subscriber exists in the Mono dump, so the gate is applied elsewhere (IL2CPP side or a server-sent table patch) — effect confirmed, mechanism not located.
+- The global client reads the **oversea** table variant (`oversea.bytes` in `<hash>_oversea.ab`; `TableData.dataPath`), where `TableCooker._cookerType` is a `UInt16` and the contiguous id range **370006-370023** carries `999` (sandshop cart, mall campfires, Halloween crucible, New Year stove, …). `370001-5 → 1`, `370024 → 11`, `370025 → 12` … `370033 → 1`. It is not "seasonal vs not": winter cookers `370024`/`370025` have menus, the autumn cooker `370022` does not.
+- The China build reads `cn.bytes` instead, where the field is a `Byte` and those cookers carry their real types (`370006 → 2`, `370010 → 3`, `370014 → 5`, `370019 → 6` …). When this was first observed in-world (2026-09-02) the offline tables were decoded from `cn.ab`, so the live 999 looked like a runtime gate with no visible mechanism; comparing both variants on 2026-09-30 showed it is just the global data.
+- `TableCookingRecipe` is identical in both variants: live `GetCookingRecipe` returns cookerType 2 / 3 / 5 / 6 / 15 for `45129` / `45216` / `45254` / `45274` / `45532`. So the menu buckets exist and are populated, while the cookers that would own them point at an empty `999` bucket — `GetAllRecipes` returns 0 for every one of them, i.e. the game itself will not serve their menu.
 
 Two consequences the code depends on: 999 is a **shared** bucket across unrelated cookers, so grouping by it would merge a crucible, a grill and a food cart into one "type"; and re-deriving the real type from the offline table would not help, because the recipe list still comes from the client's own bucket lookup.
 
@@ -1670,7 +1799,7 @@ Decrypts `persistentDataPath/ScreenCapture` to `ScreenCaptureDecrypted` (AES, sa
 
 Palette comes from the in-game `drawing_lut` texture (128 colors; cached as `ScreenCaptureDecrypted/.drawing_color_lut.png`). Edited colors outside the palette are quantized to the nearest entry on re-encrypt.
 
-**Upload edited drawing to the server** (open the drawing at your easel first): **Extract open drawing** dumps the live canvas to `ScreenCaptureDecrypted/drawing.png`; edit it; **Upload drawing.png** pushes the pixels to the server (DrawBoard protocol) and refreshes the in-game preview/thumbnail. This is server-authoritative — editing the local cache alone does **not** change the drawing in-game.
+**Upload edited drawing to the server** (open the drawing at your easel first): **Extract open drawing** dumps the live canvas to `ScreenCaptureDecrypted/drawing.png`; edit it; **Upload drawing.png** pushes the pixels to the server (DrawBoard protocol) and refreshes the in-game preview/thumbnail. This is server-authoritative — editing the local cache alone does **not** change the drawing in-game. A drawing with more than 256 colour runs goes out in chunks of 256 runs, one command per second (fixed values — the budget and delay sliders were removed 2026-09-29).
 
 CLI parity: `tools/screen_capture_crypto.py` (`decrypt` / `encrypt-changed` / `decode-draw` / `encode-draw`; `pip install pycryptodome pillow`). Palette files: `tools/gen_drawing_palette.py`.
 
@@ -1927,13 +2056,32 @@ Research tool for the party **stampede carpets** — Slippery Rug `260242` (`p_m
 - **Step Off** — completes the cycle like a real exit: both `PlayerExit` skills in `ugcSkills` order (AddBuff 1005, +20% for 3 s linger, then RemoveBuff 1003).
 - **Logging** — always on, no toggle: resolution pointers, dictionary walk per-actor lines (netId/staticId/ugcType/pos/dist), full command payloads, invoke results/exceptions.
 
-Skill ids are per-staticId constants recovered from the decrypted `cn.bytes` tables (`Mechanism.ugcSkills` → `Ugcskill` → `UgcServerAction`/`BuffConfig`); the game-side pipeline this replays is `UGCTriggerCase → LocalPlayerComponent.TriggerEnter → PhysInteractionSystem → PhysEventSkill → Action_Command_UgcOperate`. Research: `/ugc-mechanism-carpet-interaction.md`.
+Skill ids are per-staticId constants recovered from the decrypted design tables (`oversea.bytes`) (`Mechanism.ugcSkills` → `Ugcskill` → `UgcServerAction`/`BuffConfig`); the game-side pipeline this replays is `UGCTriggerCase → LocalPlayerComponent.TriggerEnter → PhysInteractionSystem → PhysEventSkill → Action_Command_UgcOperate`. Research: `/ugc-mechanism-carpet-interaction.md`.
 
 ---
 
-## Research Tab
+## Research / Order Tab
 
-A practical panel for the Research Institute (research store is StoreId **142**). Opening the tab auto-prepares everything: it polls the server-sync instrument cache immediately, arms the level spoof, and force-spawns the institute's client entities (all silent, main-town only) — so the list and buttons are ready without any setup. System map: `.research-record/RESEARCH_STORE_REPORT.md`.
+The sidebar entry is **Research / Order**: the order-machine card sits on top, the Research Institute
+block below it.
+
+**Order Machine** (`OrderShopFeature.cs` + `HeartopiaComplete.UguiOrderShopContent.cs`) — the game's
+order machine ("Order Pickup", in-game system name *Subscription*): you order an out-of-catalog item
+with order tickets, wait for it to arrive, then buy it at the machine.
+
+| Element | What it does |
+|---------|--------------|
+| Item line | The ordered item under the game's own label (`ShopItemData(storeGroupId).name`, e.g. *Building Permit: Vibrant Adjustable Window*), or **No active order.** |
+| Status line | **Arrives in 1d 22h 35m (around MM-dd HH:mm)** — remaining time on the game clock (`GameTimeUtility.ParseToUnixMs(RefreshTime) − GetUnixTimeMs()`, the same countdown the game's panel shows), ETA in the PC's local time. Turns green **Arrived — ready to collect.** once due. |
+| OPEN ORDER PANEL | Opens, from anywhere, the panel the machine itself would open now: `OrderShopItemPanel` (no order → catalog), `ShowOrderedShopItemPanel` (in transit), `OrderShopBuyPanel` (arrived → Purchase). State from `ShopSystem.GeOrderShopMachineState()`; open = `UIManager.OpenView(Type, null)`, the vanilla path (no PanelLogic exists for these panels). Hides the mod menu so the full-screen game panel is usable. |
+
+Data is read only while the page is on screen (every 15 s, immediately on page open and after the
+button; the countdown is interpolated in between). Read path, all non-generic:
+`PlayerDataCenter.GetSelfEcsEntity` → `StoreHelper.TryGetStoreEntity` → `NetworkEntityRef.get_Entity`
+→ `EcsEntityExtensions.GetComponentValues` → the `SubscriptionComponent` box (`Id`, `RefreshTime`).
+Reads only — the mod never places, cancels or buys an order.
+
+**Research Institute** — a practical panel for the Research Institute (research store is StoreId **142**). Opening the tab auto-prepares everything: it polls the server-sync instrument cache immediately, arms the level spoof, and force-spawns the institute's client entities (all silent, main-town only) — so the list and buttons are ready without any setup. System map: `.research-record/RESEARCH_STORE_REPORT.md`.
 
 **Instruments** (live from the server-sync cache — works from any location):
 

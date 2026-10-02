@@ -205,6 +205,7 @@ namespace HeartopiaMod
             public bool gameLodFurnitureEnabled;
             public int gameLodFurnitureMaxObjects;
             public int gameLodFurnitureDistance;
+            public int gameLodFurnitureOwnHomeDistance;
             public int gameLodFurnitureMeshDistance;
             // NOTE: gameLodForceLod0Enabled was removed 2026-07-27 (the flag blanked every UGC
             // texture). Old Config.xml files still carrying the element deserialize fine — the XML
@@ -222,6 +223,9 @@ namespace HeartopiaMod
             public float gameLodNineCellMult;
             public bool gameLodShadowEnabled;
             public float gameLodShadowDistance;
+            public bool gameLodTextureBudgetEnabled;
+            public int gameLodTextureBudgetMb;
+            public bool gameLodBrgRebuildEnabled;
             public bool gameLodHlodEnabled;
             public float gameLodHlodMult;
             public bool gameLodXdLodEnabled;
@@ -239,6 +243,7 @@ namespace HeartopiaMod
             public bool quietAnimalCardPopups;
             public bool emoteUnlockEnabled;
             public bool paintStyleUnlockEnabled;
+            public bool freePlaceRotateUnlockEnabled;
             public bool furnitureDyePickerEnabled;
             public bool friendInteractUnlockEnabled;
             public bool foragingAnimEnabled;
@@ -261,7 +266,6 @@ namespace HeartopiaMod
             // Self-tab bypass toggles. These were session-only until now even though their UI
             // handlers already called SaveKeybinds — the fields simply had no home in the config.
             public bool vehicleBypassEnabled;
-            public bool vehicleBypassServerEventsEnabled;
             public bool warehouseBypassEnabled;
             public bool strangerChatBypassEnabled;
             public bool chatForceTranslateEnabled;

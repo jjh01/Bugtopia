@@ -210,6 +210,7 @@ namespace HeartopiaMod
             data.gameLodFurnitureEnabled = this.gameLodFurnitureEnabled;
             data.gameLodFurnitureMaxObjects = this.gameLodFurnitureMaxObjects;
             data.gameLodFurnitureDistance = this.gameLodFurnitureDistance;
+            data.gameLodFurnitureOwnHomeDistance = this.gameLodFurnitureOwnHomeDistance;
             data.gameLodFurnitureMeshDistance = this.gameLodFurnitureMeshDistance;
             data.gameLodBrgBiasEnabled = this.gameLodBrgBiasEnabled;
             data.gameLodBrgBias = this.gameLodBrgBias;
@@ -224,6 +225,9 @@ namespace HeartopiaMod
             data.gameLodNineCellMult = this.gameLodNineCellMult;
             data.gameLodShadowEnabled = this.gameLodShadowEnabled;
             data.gameLodShadowDistance = this.gameLodShadowDistance;
+            data.gameLodTextureBudgetEnabled = this.gameLodTextureBudgetEnabled;
+            data.gameLodTextureBudgetMb = this.gameLodTextureBudgetMb;
+            data.gameLodBrgRebuildEnabled = this.gameLodBrgRebuildEnabled;
             data.gameLodHlodEnabled = this.gameLodHlodEnabled;
             data.gameLodHlodMult = this.gameLodHlodMult;
             data.gameLodXdLodEnabled = this.gameLodXdLodEnabled;
@@ -243,6 +247,7 @@ namespace HeartopiaMod
             data.quietAnimalCardPopups = this.quietAnimalCardPopups;
             data.emoteUnlockEnabled = this.emoteUnlockEnabled;
             data.paintStyleUnlockEnabled = this.paintStyleUnlockEnabled;
+            data.freePlaceRotateUnlockEnabled = this.freePlaceRotateUnlockEnabled;
             data.furnitureDyePickerEnabled = this.furnitureDyePickerEnabled;
             data.friendInteractUnlockEnabled = this.friendInteractUnlockEnabled;
             data.foragingAnimEnabled = this.foragingAnimEnabled;
@@ -260,7 +265,6 @@ namespace HeartopiaMod
             data.petHeightLimitBypassEnabled = this.petHeightLimitBypassEnabled;
             data.persistentHudEnabled = this.persistentHudEnabled;
             data.vehicleBypassEnabled = this.vehicleBypassEnabled;
-            data.vehicleBypassServerEventsEnabled = this.vehicleBypassServerEventsEnabled;
             data.warehouseBypassEnabled = this.warehouseBypassEnabled;
             data.strangerChatBypassEnabled = this.strangerChatBypassEnabled;
             data.chatForceTranslateEnabled = this.chatForceTranslateEnabled;
@@ -618,6 +622,7 @@ namespace HeartopiaMod
             this.gameLodFurnitureEnabled = data.gameLodFurnitureEnabled;
             this.gameLodFurnitureMaxObjects = data.gameLodFurnitureMaxObjects;
             this.gameLodFurnitureDistance = data.gameLodFurnitureDistance;
+            this.gameLodFurnitureOwnHomeDistance = data.gameLodFurnitureOwnHomeDistance;
             this.gameLodFurnitureMeshDistance = data.gameLodFurnitureMeshDistance;
             this.gameLodBrgBiasEnabled = data.gameLodBrgBiasEnabled;
             this.gameLodBrgBias = data.gameLodBrgBias;
@@ -632,6 +637,9 @@ namespace HeartopiaMod
             this.gameLodNineCellMult = data.gameLodNineCellMult;
             this.gameLodShadowEnabled = data.gameLodShadowEnabled;
             this.gameLodShadowDistance = data.gameLodShadowDistance;
+            this.gameLodTextureBudgetEnabled = data.gameLodTextureBudgetEnabled;
+            this.gameLodTextureBudgetMb = data.gameLodTextureBudgetMb;
+            this.gameLodBrgRebuildEnabled = data.gameLodBrgRebuildEnabled;
             this.gameLodHlodEnabled = data.gameLodHlodEnabled;
             this.gameLodHlodMult = data.gameLodHlodMult;
             this.gameLodXdLodEnabled = data.gameLodXdLodEnabled;
@@ -653,6 +661,7 @@ namespace HeartopiaMod
             this.quietAnimalCardPopups = data.quietAnimalCardPopups;
             this.emoteUnlockEnabled = data.emoteUnlockEnabled;
             this.paintStyleUnlockEnabled = data.paintStyleUnlockEnabled;
+            this.freePlaceRotateUnlockEnabled = data.freePlaceRotateUnlockEnabled;
             this.furnitureDyePickerEnabled = data.furnitureDyePickerEnabled;
             this.friendInteractUnlockEnabled = data.friendInteractUnlockEnabled;
             this.foragingAnimEnabled = data.foragingAnimEnabled;
@@ -674,7 +683,6 @@ namespace HeartopiaMod
             // freshly-constructed value and the per-feature OnUpdate gates pick the flags up from
             // there. The install work itself is deferred to the world-ready gate.
             this.vehicleBypassEnabled = data.vehicleBypassEnabled;
-            this.vehicleBypassServerEventsEnabled = data.vehicleBypassServerEventsEnabled;
             this.warehouseBypassEnabled = data.warehouseBypassEnabled;
             this.strangerChatBypassEnabled = data.strangerChatBypassEnabled;
             this.chatForceTranslateEnabled = data.chatForceTranslateEnabled;
@@ -1310,13 +1318,16 @@ namespace HeartopiaMod
             this.SetGameLodSignificanceOffEnabled(false);
             this.SetGameLodNineCellEnabled(false);
             this.SetGameLodShadowEnabled(false);
+            this.SetGameLodTextureBudgetEnabled(false);
+            this.SetGameLodBrgRebuildEnabled(false);
             this.SetGameLodHlodEnabled(false);
             this.SetGameLodXdLodEnabled(false);
             this.ugcCacheRaiseLimitEnabled = false;
             this.ugcCacheTargetCapacity = 500;
             this.nextUgcCacheApplyAt = 0f;
             this.gameLodFurnitureMaxObjects = 1500;
-            this.gameLodFurnitureDistance = 9999;
+            this.gameLodFurnitureDistance = 150;
+            this.gameLodFurnitureOwnHomeDistance = 9999;
             this.gameLodFurnitureMeshDistance = 1000;
             this.gameLodBrgBias = 2f;
             this.gameLodVegetationPref = 5;
@@ -1325,6 +1336,7 @@ namespace HeartopiaMod
             this.gameLodVegetationApplyDuringLoad = false;
             this.gameLodNineCellMult = 2f;
             this.gameLodShadowDistance = 300f;
+            this.gameLodTextureBudgetMb = 2048;
             this.gameLodHlodMult = 2f;
             this.showStatusOverlay = false;
             this.SaveKeybinds(false);
