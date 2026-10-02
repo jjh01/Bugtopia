@@ -1357,7 +1357,7 @@ namespace HeartopiaMod
         // geometrically. Eight candidates around the trunk are scored by their clearance from every
         // other scanned gatherable (mapResEntities: neighbouring trees, stones, bushes), starting
         // from the side the player is coming from, and the first with the most room wins.
-        private const float FruitTreeTeleportStandoff = 1.1f;
+        private const float FruitTreeTeleportStandoff = 0.5f;
         // The landing is off the pivot, so on a slope its ground can sit a little higher than the
         // tree base. Arriving slightly above and dropping is safe; arriving below the surface is not.
         private const float FruitTreeTeleportLift = 0.3f;
