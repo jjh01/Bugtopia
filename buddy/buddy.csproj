@@ -329,6 +329,7 @@
     <Compile Include="FishingCameraHudFeature.cs" />
     <Compile Include="ServerSideFishingFeature.cs" />
     <Compile Include="DailyQuestSubmitFeature.cs" />
+    <Compile Include="DailyQuestFurnitureSubmitFeature.cs" />
     <Compile Include="DailyClaimsAutoClaimFeature.cs" />
     <Compile Include="DailyClaimsFeature.cs" />
     <Compile Include="BirdPhotoSubmitFeature.cs" />
@@ -368,6 +369,7 @@
     <Compile Include="HeartopiaComplete.UguiResearchContent.cs" />
     <Compile Include="HeartopiaComplete.UguiOrderShopContent.cs" />
     <Compile Include="HeartopiaComplete.UguiSettingsMainContent.cs" />
+    <Compile Include="HeartopiaComplete.UguiStatusOverlaySettings.cs" />
     <Compile Include="HeartopiaComplete.UguiKeybindsContent.cs" />
     <Compile Include="HeartopiaComplete.UguiThemeContent.cs" />
     <Compile Include="HeartopiaComplete.UguiTeleportContent.cs" />
@@ -384,6 +386,7 @@
     <Compile Include="HeartopiaComplete.UguiRadarContent.cs" />
     <Compile Include="HeartopiaComplete.UguiNewFeaturesContent.cs" />
     <Compile Include="HeartopiaComplete.UguiSandSculptureContent.cs" />
+    <Compile Include="HeartopiaComplete.UguiHobbyContent.cs" />
     <Compile Include="HeartopiaComplete.UguiPicturesContent.cs" />
     <Compile Include="HeartopiaComplete.UguiIceSkatingContent.cs" />
     <Compile Include="HeartopiaComplete.UguiExtraContent.cs" />
@@ -437,6 +440,7 @@
     <Compile Include="InstantTeleportFeature.cs" />
     <Compile Include="SelfRespawnGuardFeature.cs" />
     <Compile Include="InteractObstacleBypassFeature.cs" />
+    <Compile Include="PushSnapFixFeature.cs" />
     <Compile Include="PetHeightLimitBypassFeature.cs" />
     <Compile Include="HeartopiaComplete.Config.cs" />
     <Compile Include="HeartopiaComplete.Gui.cs" />
@@ -498,6 +502,7 @@
     <Compile Include="AutoIceSkatingFeature.cs" />
     <Compile Include="SnowSculptureFeature.cs" />
     <Compile Include="SandSculptureFeature.cs" />
+    <Compile Include="PumpkinCarvingFeature.cs" />
     <Compile Include="SandRoughSelectHook.cs" />
     <Compile Include="SeaCleanQteFeature.cs" />
     <Compile Include="CleanupBossFeature.cs" />

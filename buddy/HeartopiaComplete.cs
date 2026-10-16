@@ -771,6 +771,7 @@ namespace HeartopiaMod
             this.ProcessBaitThrowAnimationTrimOnUpdate();
             this.ProcessCraftDirectSendOnUpdate();
             this.ProcessInteractObstacleBypassOnUpdate();
+            this.ProcessPushSnapFixOnUpdate();
             this.ProcessPetHeightLimitBypassOnUpdate();
             this.ProcessFishingCameraHudOnUpdate();
             this.ProcessServerSideFishingOnUpdate();
@@ -1172,6 +1173,12 @@ namespace HeartopiaMod
                     this.AddMenuNotification(this.L("Auto Sand Sculpture") + ": " + (this.autoSandEnabled ? this.L("On") : this.L("Off")),
                         this.autoSandEnabled ? new Color(0.45f, 1f, 0.55f) : new Color(1f, 0.55f, 0.55f));
                 }
+                if (this.TryGetModHotkeyDown(this.autoPumpkinHotkey))
+                {
+                    this.autoPumpkinEnabled = !this.autoPumpkinEnabled;
+                    this.AddMenuNotification(this.L("Auto Pumpkin Carving") + ": " + (this.autoPumpkinEnabled ? this.L("On") : this.L("Off")),
+                        this.autoPumpkinEnabled ? new Color(0.45f, 1f, 0.55f) : new Color(1f, 0.55f, 0.55f));
+                }
                 if (this.TryGetModHotkeyDown(this.seaCleanQteHotkey))
                 {
                     this.seaCleanQteEnabled = !this.seaCleanQteEnabled;
@@ -1380,6 +1387,7 @@ namespace HeartopiaMod
             }
             this.ProcessSnowSculptureOnUpdate();
             this.ProcessSandSculptureOnUpdate();
+            this.ProcessPumpkinCarvingOnUpdate();
             this.ProcessSeaCleanQteOnUpdate();
             this.ProcessCorruptionCleanseOnUpdate();
             if (this.autoFishingFarmBreaker.ShouldRun(Time.unscaledTime))
@@ -4044,6 +4052,13 @@ namespace HeartopiaMod
         private float nextRadarSettingsSaveAt = 0f;
         private bool blockGameUiWhenMenuOpen = false;
         private bool showStatusOverlay = false;
+        // Independent of uiScale. 1 = 100%. Missing/zero in an old config stays 1, not the menu scale.
+        private float statusOverlayScale = 1f;
+        // Set once the user drags the header. Until then the overlay keeps the centered formula.
+        // (0, 0) is a legal top-left, so the flag is the only "not placed yet" signal.
+        private bool statusOverlayPositionSet;
+        private float statusOverlayX;
+        private float statusOverlayY;
         private float blockInputReleaseUntil = 0f;
         private List<HeartopiaComplete.MenuNotification> menuNotifications = new List<HeartopiaComplete.MenuNotification>();
         private bool eventSystemBlockedByMenu = false;
@@ -4088,12 +4103,6 @@ namespace HeartopiaMod
             new HeartopiaComplete.FarmLocation("ShiiTake Spawn", new Vector3(57f, 18.3f, -131.5f), "mushroom"),
             new HeartopiaComplete.FarmLocation("Button Spawn", new Vector3(-156.3f, 18.8f, -115.2f), "mushroom"),
             new HeartopiaComplete.FarmLocation("Oyster Spawn", new Vector3(-139.8f, 21.3f, 205.2f), "mushroom"),
-            // Slab Mining dig sites, 远古召唤 / Ancient Summon (2026-08-29..2026-10-09). Both snapped
-            // from the running game 2026-08-29 while the gather histogram reported four nodes in
-            // range at each ("0/130027->x4" / "0/130028->x4"), so these are stood-on positions, not
-            // map guesses. They replace last season's four foraging-plant areas.
-            new HeartopiaComplete.FarmLocation("Capybara Slab Event Area", new Vector3(-117.367f, 22.262f, 225.887f), "event_capybara_slab"),
-            new HeartopiaComplete.FarmLocation("Oak-Oak Slab Event Area", new Vector3(188.783f, 19.126f, -0.313f), "event_oak_slab"),
             new HeartopiaComplete.FarmLocation("Meteor Spawn 1", new Vector3(78.566f, 20.045f, -99.045f), "meteor"),
             new HeartopiaComplete.FarmLocation("Meteor Spawn 2", new Vector3(-57.025f, 11.051f, -151.923f), "meteor"),
             new HeartopiaComplete.FarmLocation("Big Blueberry Field", new Vector3(-114.2f, 20.1f, 142f), "blueberry"),
@@ -4832,8 +4841,9 @@ namespace HeartopiaMod
         private bool radarTreesDropdownOpen = false;
         private bool radarDailyDropdownOpen = false;
         private bool radarMiscDropdownOpen = false;
-        private bool showCapybaraSlabRadar = false;
-        private bool showOakSlabRadar = false;
+        // Events: Honey Mushroom (Dynamicbush 130030, item 48007) and Hollow Tree (130029).
+        private bool showHoneyMushroomRadar = false;
+        private bool showHollowTreeRadar = false;
 
         // Underwater gatherables (2026-07-09 SeaWorld update, Fruit table 40601-40603):
         // Glasswort = p_gather_seaasparagus_00, Sea Grape = p_gather_seagrape_00,

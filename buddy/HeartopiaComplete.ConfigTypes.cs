@@ -73,6 +73,7 @@ namespace HeartopiaMod
             public int keyBirdVacuum;
             public int keyAutoSnow;
             public int keyAutoSand;
+            public int keyAutoPumpkin;
             public int keySeaCleanQte;
             public int keyEquipSeaCleaner;
             // 0/absent = "use default" (radius can never legitimately be 0).
@@ -260,6 +261,7 @@ namespace HeartopiaMod
             public bool autoLikeOwnHome;
             public bool craftDirectSendEnabled;
             public bool interactObstacleBypassEnabled;
+            public bool pushSnapFixEnabled;
             public bool interactBuildModeBypassEnabled;
             public bool petHeightLimitBypassEnabled;
             public bool persistentHudEnabled;
@@ -371,6 +373,8 @@ namespace HeartopiaMod
             public bool autoBubbleCollectEnabled;
             public float autoBubbleCollectRadius = 10f; // 0 = unlimited, default 10m
             public float petFeedScanRadiusMeters;
+            public bool petFeedSkipRareFood = true;
+            public string petFeedFoodByPet;
             public float netCookInterval;
             public float netCookScanRadiusMeters;
             public bool netCookMiniGameOnly;
@@ -443,6 +447,15 @@ namespace HeartopiaMod
             public bool autoCloseAnnouncementEnabled;
             public int maxAutoEatAttempts;
             public bool showStatusOverlay;
+            // 0 in a file written before this slider existed. The loader treats that as 1 (100%),
+            // so an old config does not inherit uiScale.
+            public float statusOverlayScale = 1f;
+            // False until the user drags the header. X/Y are overlay logical units (top-left).
+            public bool statusOverlayPositionSet;
+            public float statusOverlayX;
+            public float statusOverlayY;
+            // Entry labels the user hid. Missing = show every row.
+            public List<string> statusOverlayHidden = new List<string>();
             public bool hideIdEnabled;
             public bool customDisplayIdEnabled;
             public string customDisplayId;
@@ -483,6 +496,7 @@ namespace HeartopiaMod
             public bool autoSellAllMatchingStacks;
             public bool autoSellFullStack;
             public bool dailyQuestSubmitSkipFiveStar;
+            public bool dailyQuestSubmitSkipFurniture;
             public bool dailyClaimsAutoClaimEnabled;
             public bool autoSellMatchFamily;
             public bool autoSellHideBagItems;

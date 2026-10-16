@@ -240,13 +240,14 @@ namespace HeartopiaMod
                             }
                         }
 
-                        // ZERO: a dropping the poop scan can see is always the next target — no
-                        // switch and no priority row, by the owner's call (2026-09-12): it is worth
-                        // more than any bush and it expires. Walk only. A dropping the router cannot
-                        // reach is parked, never warped to (rule 0.2a: a teleport is the emergency
-                        // exit for the ONLY target, and a dropping is never that). Walk-to-node mode
-                        // only: the teleport farm has nothing to offer a dropping.
+                        // ZERO: a dropping the poop scan can see is the next target when Dog Poop
+                        // is selected on the radar (showPetPoopRadar) — ahead of every priority row,
+                        // because it expires. Walk only. A dropping the router cannot reach is
+                        // parked, never warped to (rule 0.2a: a teleport is the emergency exit for
+                        // the ONLY target, and a dropping is never that). Walk-to-node mode only:
+                        // the teleport farm has nothing to offer a dropping.
                         if (this.farmWalkToNodeEnabled
+                            && this.showPetPoopRadar
                             && this.TryGetNearestPetPoopTarget(Camera.main.transform.position, out Vector3 poopPos, out uint poopNetId))
                         {
                             float poopDistance = Vector3.Distance(Camera.main.transform.position, poopPos);
@@ -716,8 +717,6 @@ namespace HeartopiaMod
                             bool flagStone = this.showStoneRadar;
                             bool flagOre = this.showOreRadar;
                             bool flagMeteor = this.showMeteorRadar;
-                            bool flagEventCapybaraSlab = this.showCapybaraSlabRadar;
-                            bool flagEventOakSlab = this.showOakSlabRadar;
                             // Any underwater radar category shares the sea-area waypoints so the farm
                             // can hop to a fresh sea region once the current one is cleared.
                             bool flagUnderwater = this.showContaminatedRadar || this.showGlasswortRadar
@@ -784,14 +783,6 @@ namespace HeartopiaMod
                                                 flag13 = true;
                                             }
                                             else if (farmLocation2.Type == "meteor" && flagMeteor)
-                                            {
-                                                flag13 = true;
-                                            }
-                                            else if (farmLocation2.Type == "event_capybara_slab" && flagEventCapybaraSlab)
-                                            {
-                                                flag13 = true;
-                                            }
-                                            else if (farmLocation2.Type == "event_oak_slab" && flagEventOakSlab)
                                             {
                                                 flag13 = true;
                                             }
@@ -2035,17 +2026,17 @@ namespace HeartopiaMod
             return IsDynamicBushStaticId(staticId);
         }
 
-        // The dynamic-bush family: mushrooms (130001-130018), last season's foraging plants
-        // (130019-130026) and this season's slab dig sites (130027/130028), plus the daily perch
-        // 130029. Everything in here GROWS, which is the whole point of the range — a member with
-        // no broadcast verdict is unconfirmed, not ripe.
+        // The dynamic-bush family: mushrooms (130001-130018), retired event bushes
+        // (130019-130028), Hollow Tree 130029 and Honey Mushroom 130030. Everything in
+        // here GROWS, which is the whole point of the range — a member with no broadcast
+        // verdict is unconfirmed, not ripe.
         //
-        // ⚠️ The bound was 130025 and the slab sites fell outside it, so all four in range were
-        // reported collectable the instant they were dug ("hid 0 not collectable" with growTime
-        // 60 s). Extend this whenever a new Dynamicbush id ships, not just its radar toggle.
+        // ⚠️ The bound was 130025 and later ids fell outside it, so in-range nodes were
+        // reported collectable the instant they were gathered. Extend this whenever a new
+        // Dynamicbush id ships, not just its radar toggle.
         internal static bool IsDynamicBushStaticId(int staticId)
         {
-            return staticId >= 130001 && staticId <= 130029;
+            return staticId >= 130001 && staticId <= 130030;
         }
 
         private bool IsFarmTargetUnconfirmed(Vector3 node, out int staticId)
@@ -3332,16 +3323,12 @@ namespace HeartopiaMod
                                         // markers were on the radar but no branch here matched the labels, so
                                         // the farm never targeted them — it kept touring rare trees instead.
                                         // Cooldown copies are already excluded above (markerOnCooldown).
-                                        // ⚠️ EQUALITY, not Contains: "Oak-Oak Slab" (the dig site,
-                                        // 130028) contains "Oak-Oak" (the roaming animal, 42001).
-                                        // With Contains here the roamer's toggle also swept up slab
-                                        // markers, which is a different resource in a different area
-                                        // reached by a different interaction.
+                                        // Equality, not Contains: a longer label can contain "Oak-Oak".
                                         || (this.showOakOakRadar && string.Equals(markerLabel, "Oak-Oak", StringComparison.Ordinal))
                                         || (this.showFluoriteRadar && markerLabel.Contains("Flawless Fluorite"))
-                                        || this.ShouldShowMushroomByLabel(markerLabel)
-                                        || (this.showCapybaraSlabRadar && markerLabel.Contains("Capybara Slab"))
-                                        || (this.showOakSlabRadar && markerLabel.Contains("Oak-Oak Slab"));
+                                        || (this.showHoneyMushroomRadar && markerLabel.Contains("Honey Mushroom"))
+                                        || (this.showHollowTreeRadar && string.Equals(markerLabel, "Hollow Tree", StringComparison.Ordinal))
+                                        || this.ShouldShowMushroomByLabel(markerLabel);
                                     if (flag10)
                                     {
                                         flag9 = true;
@@ -3384,7 +3371,9 @@ namespace HeartopiaMod
                                             {
                                                 flag9 = true;
                                             }
-                                            else if (markerLabel.Contains("Tree") && this.showTreeRadar)
+                                            else if (this.showTreeRadar
+                                                && markerLabel.Contains("Tree")
+                                                && !string.Equals(markerLabel, "Hollow Tree", StringComparison.Ordinal))
                                             {
                                                 flag9 = true;
                                             }

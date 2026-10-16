@@ -135,6 +135,7 @@ namespace HeartopiaMod
             data.keyBirdVacuum = (int)this.keyBirdVacuum;
             data.keyAutoSnow = (int)this.autoSnowHotkey;
             data.keyAutoSand = (int)this.autoSandHotkey;
+            data.keyAutoPumpkin = (int)this.autoPumpkinHotkey;
             data.keySeaCleanQte = (int)this.seaCleanQteHotkey;
             data.keyEquipSeaCleaner = (int)this.keyEquipSeaCleaner;
             data.seaCleanAutoRadius = this.seaCleanAutoRadius;
@@ -261,6 +262,7 @@ namespace HeartopiaMod
             data.autoLikeOwnHome = this.autoLikeOwnHome;
             data.craftDirectSendEnabled = this.craftDirectSendEnabled;
             data.interactObstacleBypassEnabled = this.interactObstacleBypassEnabled;
+            data.pushSnapFixEnabled = this.pushSnapFixEnabled;
             data.interactBuildModeBypassEnabled = this.interactBuildModeBypassEnabled;
             data.petHeightLimitBypassEnabled = this.petHeightLimitBypassEnabled;
             data.persistentHudEnabled = this.persistentHudEnabled;
@@ -362,6 +364,8 @@ namespace HeartopiaMod
             data.autoBubbleCollectEnabled = this.autoBubbleCollectEnabled;
             data.autoBubbleCollectRadius = this.autoBubbleCollectRadius;
             data.petFeedScanRadiusMeters = this.petFeedScanRadiusMeters;
+            data.petFeedSkipRareFood = this.petFeedSkipRareFood;
+            data.petFeedFoodByPet = this.SerializePetFeedFoodPrefs();
             data.netCookInterval = this.netCookInterval;
             data.netCookScanRadiusMeters = this.netCookScanRadiusMeters;
             data.netCookMiniGameOnly = this.netCookMiniGameOnly;
@@ -428,6 +432,11 @@ namespace HeartopiaMod
             data.autoCloseAnnouncementEnabled = this.autoCloseAnnouncementEnabled;
             data.maxAutoEatAttempts = this.maxAutoEatAttempts;
             data.showStatusOverlay = this.showStatusOverlay;
+            data.statusOverlayScale = this.GetStatusOverlayScale();
+            data.statusOverlayPositionSet = this.statusOverlayPositionSet;
+            data.statusOverlayX = this.statusOverlayX;
+            data.statusOverlayY = this.statusOverlayY;
+            data.statusOverlayHidden = new List<string>(this.statusOverlayHiddenLabels);
             data.hideIdEnabled = this.hideIdEnabled;
             data.customDisplayIdEnabled = this.customDisplayIdEnabled;
             data.customDisplayId = this.NormalizeCustomId(this.customDisplayId);
@@ -460,6 +469,7 @@ namespace HeartopiaMod
             data.autoSellAllMatchingStacks = this.autoSellAllMatchingStacks;
             data.autoSellFullStack = this.autoSellFullStack;
             data.dailyQuestSubmitSkipFiveStar = this.dailyQuestSubmitSkipFiveStar;
+            data.dailyQuestSubmitSkipFurniture = this.dailyQuestSubmitSkipFurniture;
             data.dailyClaimsAutoClaimEnabled = this.dailyClaimsAutoClaimEnabled;
             data.autoSellMatchFamily = this.autoSellMatchFamily;
             data.autoSellHideBagItems = this.autoSellHideBagItems;
@@ -501,6 +511,7 @@ namespace HeartopiaMod
             this.keyBirdVacuum = (KeyCode)data.keyBirdVacuum;
             this.autoSnowHotkey = (KeyCode)data.keyAutoSnow;
             this.autoSandHotkey = (KeyCode)data.keyAutoSand;
+            this.autoPumpkinHotkey = (KeyCode)data.keyAutoPumpkin;
             this.seaCleanQteHotkey = (KeyCode)data.keySeaCleanQte;
             this.keyEquipSeaCleaner = (KeyCode)data.keyEquipSeaCleaner;
             this.seaCleanAutoRadius = data.seaCleanAutoRadius <= 0f
@@ -675,6 +686,7 @@ namespace HeartopiaMod
             this.autoLikeOwnHome = data.autoLikeOwnHome;
             this.craftDirectSendEnabled = data.craftDirectSendEnabled;
             this.interactObstacleBypassEnabled = data.interactObstacleBypassEnabled;
+            this.pushSnapFixEnabled = data.pushSnapFixEnabled;
             this.interactBuildModeBypassEnabled = data.interactBuildModeBypassEnabled;
             this.petHeightLimitBypassEnabled = data.petHeightLimitBypassEnabled;
             this.persistentHudEnabled = data.persistentHudEnabled;
@@ -788,6 +800,8 @@ namespace HeartopiaMod
             this.autoBubbleCollectEnabled = data.autoBubbleCollectEnabled;
             this.autoBubbleCollectRadius = Mathf.Clamp(data.autoBubbleCollectRadius, 0f, 100f);
             this.petFeedScanRadiusMeters = Mathf.Clamp(data.petFeedScanRadiusMeters > 0f ? data.petFeedScanRadiusMeters : PetFeedDefaultScanRadiusMeters, PetFeedMinScanRadiusMeters, PetFeedMaxScanRadiusMeters);
+            this.petFeedSkipRareFood = data.petFeedSkipRareFood;
+            this.DeserializePetFeedFoodPrefs(data.petFeedFoodByPet);
             this.netCookInterval = Mathf.Clamp(data.netCookInterval > 0f ? data.netCookInterval : 1.5f, 0.25f, 10f);
             this.netCookScanRadiusMeters = Mathf.Clamp(data.netCookScanRadiusMeters > 0f ? data.netCookScanRadiusMeters : NetCookDefaultScanRadiusMeters, NetCookMinScanRadiusMeters, NetCookMaxScanRadiusMeters);
             this.netCookMiniGameOnly = data.netCookMiniGameOnly;
@@ -905,6 +919,22 @@ namespace HeartopiaMod
             this.autoCloseAnnouncementEnabled = data.autoCloseAnnouncementEnabled;
             this.maxAutoEatAttempts = data.maxAutoEatAttempts;
             this.showStatusOverlay = data.showStatusOverlay;
+            this.statusOverlayScale = this.NormalizeUiScale(data.statusOverlayScale > 0f ? data.statusOverlayScale : 1f);
+            this.statusOverlayPositionSet = data.statusOverlayPositionSet;
+            this.statusOverlayX = data.statusOverlayX;
+            this.statusOverlayY = data.statusOverlayY;
+            this.statusOverlayHiddenLabels.Clear();
+            if (data.statusOverlayHidden != null)
+            {
+                for (int i = 0; i < data.statusOverlayHidden.Count; i++)
+                {
+                    string hiddenLabel = data.statusOverlayHidden[i];
+                    if (!string.IsNullOrEmpty(hiddenLabel))
+                    {
+                        this.statusOverlayHiddenLabels.Add(hiddenLabel);
+                    }
+                }
+            }
             this.hideIdEnabled = data.hideIdEnabled;
             this.customDisplayId = this.NormalizeCustomId(data.customDisplayId);
             this.customDisplayIdEnabled = data.customDisplayIdEnabled || !string.IsNullOrEmpty(this.customDisplayId);
@@ -949,6 +979,7 @@ namespace HeartopiaMod
             this.autoSellAllMatchingStacks = hasAutoSellConfig ? data.autoSellAllMatchingStacks : true;
             this.autoSellFullStack = hasAutoSellConfig ? data.autoSellFullStack : true;
             this.dailyQuestSubmitSkipFiveStar = data.dailyQuestSubmitSkipFiveStar;
+            this.dailyQuestSubmitSkipFurniture = data.dailyQuestSubmitSkipFurniture;
             // Opt-in: auto-claim sends server commands with no user action, so a config written by
             // an older build (where the field is absent → false) must stay off.
             this.dailyClaimsAutoClaimEnabled = data.dailyClaimsAutoClaimEnabled;
@@ -1062,6 +1093,7 @@ namespace HeartopiaMod
                         else if (line.Contains("keySeaCleanQte")) this.seaCleanQteHotkey = (KeyCode)GetJsonInt(line, "\"keySeaCleanQte\":");
                         else if (line.Contains("keyAutoSnow")) this.autoSnowHotkey = (KeyCode)GetJsonInt(line, "\"keyAutoSnow\":");
                         else if (line.Contains("keyAutoSand")) this.autoSandHotkey = (KeyCode)GetJsonInt(line, "\"keyAutoSand\":");
+                        else if (line.Contains("keyAutoPumpkin")) this.autoPumpkinHotkey = (KeyCode)GetJsonInt(line, "\"keyAutoPumpkin\":");
                         else if (line.Contains("keyJoinPublic")) this.keyJoinPublic = (KeyCode)GetJsonInt(line, "\"keyJoinPublic\":");
                         else if (line.Contains("keyJoinMyTown")) this.keyJoinMyTown = (KeyCode)GetJsonInt(line, "\"keyJoinMyTown\":");
                         else if (line.Contains("keyAutoInsectFarm")) this.keyAutoInsectFarm = (KeyCode)GetJsonInt(line, "\"keyAutoInsectFarm\":");
@@ -1125,6 +1157,8 @@ namespace HeartopiaMod
                         else if (line.Contains("bubbleSpawnAtPlayerEnabled")) this.bubbleSpawnAtPlayerEnabled = GetJsonInt(line, "\"bubbleSpawnAtPlayerEnabled\":") != 0;
                         else if (line.Contains("autoBubbleCollectEnabled")) this.autoBubbleCollectEnabled = GetJsonInt(line, "\"autoBubbleCollectEnabled\":") != 0;
                         else if (line.Contains("autoBubbleCollectRadius")) this.autoBubbleCollectRadius = Mathf.Clamp(GetJsonFloat(line, "\"autoBubbleCollectRadius\":"), 0f, 100f);
+            else if (line.Contains("petFeedFoodByPet")) this.DeserializePetFeedFoodPrefs(GetJsonString(line, "\"petFeedFoodByPet\":"));
+            else if (line.Contains("petFeedSkipRareFood")) this.petFeedSkipRareFood = line.IndexOf("true", StringComparison.OrdinalIgnoreCase) >= 0 || GetJsonInt(line, "\"petFeedSkipRareFood\":") != 0;
             else if (line.Contains("petFeedScanRadiusMeters")) this.petFeedScanRadiusMeters = Mathf.Clamp(GetJsonFloat(line, "\"petFeedScanRadiusMeters\":"), PetFeedMinScanRadiusMeters, PetFeedMaxScanRadiusMeters);
             else if (line.Contains("netCookInterval")) this.netCookInterval = GetJsonFloat(line, "\"netCookInterval\":");
             else if (line.Contains("netCookScanRadiusMeters")) this.netCookScanRadiusMeters = Mathf.Clamp(GetJsonFloat(line, "\"netCookScanRadiusMeters\":"), NetCookMinScanRadiusMeters, NetCookMaxScanRadiusMeters);
@@ -1180,6 +1214,30 @@ namespace HeartopiaMod
                         else if (line.Contains("notificationsEnabled")) this.notificationsEnabled = GetJsonInt(line, "\"notificationsEnabled\":") != 0;
                         else if (line.Contains("blockGameUiWhenMenuOpen")) this.blockGameUiWhenMenuOpen = GetJsonInt(line, "\"blockGameUiWhenMenuOpen\":") != 0;
                         else if (line.Contains("showStatusOverlay")) this.showStatusOverlay = GetJsonInt(line, "\"showStatusOverlay\":") != 0;
+                        else if (line.Contains("statusOverlayScale"))
+                        {
+                            float parsedOverlayScale = GetJsonFloat(line, "\"statusOverlayScale\":");
+                            this.statusOverlayScale = this.NormalizeUiScale(parsedOverlayScale > 0f ? parsedOverlayScale : 1f);
+                        }
+                        else if (line.Contains("statusOverlayPositionSet")) this.statusOverlayPositionSet = GetJsonInt(line, "\"statusOverlayPositionSet\":") != 0;
+                        else if (line.Contains("statusOverlayX")) this.statusOverlayX = GetJsonFloat(line, "\"statusOverlayX\":");
+                        else if (line.Contains("statusOverlayY")) this.statusOverlayY = GetJsonFloat(line, "\"statusOverlayY\":");
+                        else if (line.Contains("statusOverlayHidden"))
+                        {
+                            this.statusOverlayHiddenLabels.Clear();
+                            string hiddenRaw = GetJsonString(line, "\"statusOverlayHidden\":");
+                            if (!string.IsNullOrEmpty(hiddenRaw))
+                            {
+                                string[] hiddenParts = hiddenRaw.Split('|');
+                                for (int hi = 0; hi < hiddenParts.Length; hi++)
+                                {
+                                    if (!string.IsNullOrEmpty(hiddenParts[hi]))
+                                    {
+                                        this.statusOverlayHiddenLabels.Add(hiddenParts[hi]);
+                                    }
+                                }
+                            }
+                        }
                         else if (line.Contains("maxAutoEatAttempts")) this.maxAutoEatAttempts = GetJsonInt(line, "\"maxAutoEatAttempts\":");
                         else if (line.Contains("autoClickStartEnabled")) this.autoClickStartEnabled = GetJsonInt(line, "\"autoClickStartEnabled\":") != 0;
                         else if (line.Contains("hideIdEnabled")) this.hideIdEnabled = GetJsonInt(line, "\"hideIdEnabled\":") != 0;
@@ -1272,6 +1330,7 @@ namespace HeartopiaMod
             this.keyAntiAfk = KeyCode.None;
             this.autoSnowHotkey = KeyCode.None;
             this.autoSandHotkey = KeyCode.None;
+            this.autoPumpkinHotkey = KeyCode.None;
             this.seaCleanQteHotkey = KeyCode.None;
             this.keyEquipSeaCleaner = KeyCode.None;
             this.keyBypassOverlap = KeyCode.None;
@@ -1339,6 +1398,11 @@ namespace HeartopiaMod
             this.gameLodTextureBudgetMb = 2048;
             this.gameLodHlodMult = 2f;
             this.showStatusOverlay = false;
+            this.statusOverlayScale = 1f;
+            this.statusOverlayPositionSet = false;
+            this.statusOverlayX = 0f;
+            this.statusOverlayY = 0f;
+            this.statusOverlayHiddenLabels.Clear();
             this.SaveKeybinds(false);
             this.AddMenuNotification(this.L("Defaults restored (Toggle Menu: Insert)"), new Color(1f, 0.75f, 0.75f));
         }
@@ -1399,6 +1463,7 @@ namespace HeartopiaMod
                 case "Auto Join Friend": this.keyAutoJoinFriend = newKey; break;
                 case "Auto Snow Sculpture": this.autoSnowHotkey = newKey; break;
                 case "Auto Sand Sculpture": this.autoSandHotkey = newKey; break;
+                case "Auto Pumpkin Carving": this.autoPumpkinHotkey = newKey; break;
                 case "Auto Sea Clean QTE": this.seaCleanQteHotkey = newKey; break;
                 case "Equip Sea Cleaner": this.keyEquipSeaCleaner = newKey; break;
                 case "Noclip": this.keyNoclip = newKey; break;

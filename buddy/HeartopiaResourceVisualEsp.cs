@@ -442,8 +442,8 @@ namespace HeartopiaMod
                 case "Penny Bun":
                 case "Shiitake":
                 case "Truffle":
-                case "Capybara Slab":
-                case "Oak-Oak Slab":
+                case "Honey Mushroom":
+                case "Hollow Tree":
                 case "Blueberry":
                 case "Raspberry":
                 case "Glasswort":
@@ -533,13 +533,13 @@ namespace HeartopiaMod
                 case "Tree": return "TR";
                 case "Branch": return "BR";
                 case "Bamboo": return "BM";
-                case "Capybara Slab": return "CS";
-                case "Oak-Oak Slab": return "OS";
                 case "Oyster": return "OY";
                 case "Button": return "BT";
                 case "Penny Bun": return "PB";
                 case "Shiitake": return "SH";
                 case "Truffle": return "TF";
+                case "Honey Mushroom": return "HM";
+                case "Hollow Tree": return "HT";
                 case "Bubble": return "BP";
                 case "Bird": return "BR";
                 case "Player": return "PL";
@@ -576,14 +576,13 @@ namespace HeartopiaMod
                 // Same green CreateMarker gives the wire marker, so one resource reads as one
                 // colour whichever surface it is on.
                 case "Bamboo": return new Color(0.45f, 0.9f, 0.5f);
-                // Same colours CreateMarker gives the wire markers.
-                case "Capybara Slab": return new Color(0.95f, 0.82f, 0.55f);
-                case "Oak-Oak Slab": return new Color(0.72f, 0.86f, 0.98f);
                 case "Oyster": return new Color(0.58f, 0.92f, 0.95f);
                 case "Button": return new Color(0.63f, 0.94f, 0.68f);
                 case "Penny Bun": return new Color(0.86f, 0.72f, 1f);
                 case "Shiitake": return new Color(1f, 0.72f, 0.56f);
                 case "Truffle": return new Color(0.98f, 0.93f, 0.58f);
+                case "Honey Mushroom": return new Color(1f, 0.78f, 0.25f);
+                case "Hollow Tree": return new Color(0.72f, 0.62f, 0.48f);
                 case "Bubble": return new Color(0.9f, 0.56f, 1f);
                 case "Bird": return new Color(0.98f, 0.92f, 0.52f);
                 case "Player": return new Color(0.45f, 0.88f, 1f);

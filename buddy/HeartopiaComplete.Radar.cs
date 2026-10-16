@@ -541,6 +541,10 @@ namespace HeartopiaMod
                 case "Truffle":
                 case "Black Truffle":
                     return "p_gather_truffle_00";
+                case "Honey Mushroom":
+                    return "p_gather_honeyfungus_00";
+                case "Hollow Tree":
+                    return "p_dynamicbush_deadtree_00_step1";
                 case "Blueberry":
                     return "p_fruit_blueberry";
                 case "Raspberry":
@@ -558,14 +562,6 @@ namespace HeartopiaMod
                     // gatherables that already load here (scallop = a recognizable seashell). Falls back to the
                     // hazard diamond while it loads.
                     return "p_gather_decadopecten_step00";
-                // Decoration.normalPrefabId of the first slab piece each node drops (oversea_tables:
-                // 302685 -> kapibalaslate_1, 302694 -> oakslab_1). The nodes themselves are
-                // p_dynamicbush_slate_00_*, which has no ui_item_normal_* icon — the DROP does,
-                // and that is the picture the player recognises.
-                case "Capybara Slab":
-                    return "p_decoration_tribe_kapibalaslate_1";
-                case "Oak-Oak Slab":
-                    return "p_decoration_tribe_oakslab_1";
                 // Pickable.normalPrefabId of Entity 7100 (oversea_tables Pickable table) - the bag-item icon
                 // ui_item_normal_p_dogpoop_dogpoop001 exists in the icon index.
                 case "Dog Poop":
@@ -1882,7 +1878,8 @@ namespace HeartopiaMod
 
         private bool AnyRadarLootToggleEnabled()
         {
-            return this.IsAnyMushroomRadarEnabled() || this.showCapybaraSlabRadar || this.showOakSlabRadar
+            return this.IsAnyMushroomRadarEnabled()
+                || this.showHoneyMushroomRadar || this.showHollowTreeRadar
                 || this.showGlasswortRadar || this.showSeaGrapeRadar || this.showWakameRadar || this.showContaminatedRadar
                 || this.showBlueberryRadar || this.showRaspberryRadar || this.showStoneRadar || this.showOreRadar
                 || this.showTreeRadar || this.showRareTreeRadar || this.showAppleTreeRadar || this.showOrangeTreeRadar
@@ -2238,7 +2235,7 @@ namespace HeartopiaMod
             }
 
             bool flag34 = object2 != null;
-            if (this.IsAnyMushroomRadarEnabled() || this.showCapybaraSlabRadar || this.showOakSlabRadar
+            if (this.IsAnyMushroomRadarEnabled()
                 || this.showGlasswortRadar || this.showSeaGrapeRadar || this.showWakameRadar)
             {
                 if (flag34)
@@ -2412,10 +2409,20 @@ namespace HeartopiaMod
                     this.TryGetProduceItemId(entry.ProduceId, out itemId);
                 }
 
-                bool known;
-                string meshName = itemId > 0
-                    ? ResolveLandGatherMeshName(itemId, this, out known)
-                    : ResolveLandGatherMeshByStaticId(entry.StaticId, this, out known);
+                bool known = false;
+                string meshName = null;
+                if (itemId > 0)
+                {
+                    meshName = ResolveLandGatherMeshName(itemId, this, out known);
+                }
+
+                // A resolved produce item that this table does not know (Honey Mushroom 48007,
+                // Hollow Tree's PERCH01 gifts) must still fall through to the entity staticId.
+                // A known item with its toggle off stays off: known is true and meshName is null.
+                if (meshName == null && !known)
+                {
+                    meshName = ResolveLandGatherMeshByStaticId(entry.StaticId, this, out known);
+                }
                 // ⚠️ Key on the RAW pair, not the resolved itemId. "130013" looked like one unmapped
                 // item; it is almost certainly an ENTITY staticId that 122 mushroom entities fall
                 // back to because their itemTypeID is 0 — and a histogram keyed on the merged value
@@ -2652,22 +2659,11 @@ namespace HeartopiaMod
         // Every species I had guessed turned out right — but only by luck, and one look at the
         // table would have settled it before any of the guessing.
         //
-        // 130027/130028 are the CURRENT season's dig sites (远古召唤 / Ancient Summon, Date 60901 =
-        // 2026-08-29..2026-10-09). They replaced 130019/21/23/25, last season's foraging plants
-        // (蕨菜/蒜芥/牛蒡/芥菜) whose event window has closed — those toggles are gone, not disabled.
-        //
-        //   130027 卡皮巴拉石板点  Mountain&DynamicBush  produce 1047 -> SLATE03 -> 302685-302693
-        //   130028 橡走走石板点    Forest&DynamicBush    produce 1048 -> SLATE04 -> 302694-302702
-        //
-        // Both are Dynamicbush type 3 with growTime 60 s, and BOTH report itemTypeID = 0 on the
-        // live component — confirmed on the running game, "0/130027->(unmapped)x4" in the gather
-        // histogram — so they resolve HERE, by entity staticId, exactly like the mushrooms. Do not
-        // move them to ResolveLandGatherMeshName: there is no produce id to key on, and the drop
-        // ids (302xxx) have no collectable sprite anyway.
+        // 130019-130028 are not mapped. 130019/21/23/25 were a previous season's foraging plants.
+        // 130027/130028 were the Slab Mining dig sites (远古召唤); those radar toggles are gone.
         //
         // 42001 is 橡走走 Oak-Oak — a daily roamer owned by RoamingCollectableFinderFeature, so it
-        // is deliberately NOT handled here. It is a different thing from 130028, which only shares
-        // the name: one is the animal, the other is the dig site named after it.
+        // is deliberately NOT handled here.
         private static string ResolveLandGatherMeshByStaticId(int staticId, HeartopiaComplete self, out bool known)
         {
             known = true;
@@ -2698,9 +2694,12 @@ namespace HeartopiaMod
                 case 130018:
                     return self.showMushroomRadar ? "mushroom" : null;
 
-                // Event dig sites (Slab Mining, Interaction 963).
-                case 130027: return self.showCapybaraSlabRadar ? "capybaraslab" : null;
-                case 130028: return self.showOakSlabRadar ? "oakslab" : null;
+                // Honey Mushroom (蜜环菌, item 48007). One id, no bizarre variants.
+                case 130030:
+                    return self.showHoneyMushroomRadar ? "p_gather_honeyfungus_00" : null;
+                // Hollow Tree (怪奇栖木). One collect, not a timber tree.
+                case 130029:
+                    return self.showHollowTreeRadar ? "p_dynamicbush_deadtree_00_step1" : null;
             }
 
             known = false;
@@ -3060,23 +3059,19 @@ namespace HeartopiaMod
                                                             endColor = new Color(1f, 1f, 0.5f); // Light yellow
                                                             bgColor = new Color(0.5f, 0.5f, 0.1f, 0.85f);
                                                         }
-                                                        // ⚠️ "oakslab" is tested BEFORE "capybaraslab" only for
-                                                        // symmetry of reading; the two keys share no substring, so
-                                                        // unlike the mustard pair they cannot steal each other's
-                                                        // markers. Keep them that way if either is ever renamed.
-                                                        else if (text.Contains("capybaraslab"))
+                                                        else if (text.Contains("honeyfungus"))
                                                         {
-                                                            text2 = "Capybara Slab";
-                                                            icon = "[CS]";
-                                                            endColor = new Color(0.95f, 0.82f, 0.55f);
-                                                            bgColor = new Color(0.42f, 0.3f, 0.14f, 0.85f);
+                                                            text2 = "Honey Mushroom";
+                                                            icon = "[HM]";
+                                                            endColor = new Color(1f, 0.78f, 0.25f);
+                                                            bgColor = new Color(0.45f, 0.28f, 0.05f, 0.85f);
                                                         }
-                                                        else if (text.Contains("oakslab"))
+                                                        else if (text.Contains("deadtree"))
                                                         {
-                                                            text2 = "Oak-Oak Slab";
-                                                            icon = "[OS]";
-                                                            endColor = new Color(0.72f, 0.86f, 0.98f);
-                                                            bgColor = new Color(0.16f, 0.28f, 0.44f, 0.85f);
+                                                            text2 = "Hollow Tree";
+                                                            icon = "[HT]";
+                                                            endColor = new Color(0.72f, 0.62f, 0.48f);
+                                                            bgColor = new Color(0.28f, 0.22f, 0.14f, 0.85f);
                                                         }
                                                         else if (text.Contains("seaasparagus") || text.Contains("glasswort"))
                                                         {
