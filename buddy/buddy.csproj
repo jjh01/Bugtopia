@@ -384,6 +384,7 @@
     <Compile Include="HeartopiaComplete.UguiCombinedFarmContent.cs" />
     <Compile Include="HeartopiaComplete.UguiBirdsContent.cs" />
     <Compile Include="HeartopiaComplete.UguiRadarContent.cs" />
+    <Compile Include="HeartopiaComplete.UguiRadarFilterContent.cs" />
     <Compile Include="HeartopiaComplete.UguiNewFeaturesContent.cs" />
     <Compile Include="HeartopiaComplete.UguiSandSculptureContent.cs" />
     <Compile Include="HeartopiaComplete.UguiHobbyContent.cs" />
@@ -441,6 +442,8 @@
     <Compile Include="SelfRespawnGuardFeature.cs" />
     <Compile Include="InteractObstacleBypassFeature.cs" />
     <Compile Include="PushSnapFixFeature.cs" />
+    <Compile Include="PushPathClearFeature.cs" />
+    <Compile Include="PushObstacleAheadFeature.cs" />
     <Compile Include="PetHeightLimitBypassFeature.cs" />
     <Compile Include="HeartopiaComplete.Config.cs" />
     <Compile Include="HeartopiaComplete.Gui.cs" />
@@ -530,6 +533,7 @@
     <Compile Include="PetPlayFeature.cs" />
     <Compile Include="DrawColorCodec.cs" />
     <Compile Include="DrawUploadFeature.cs" />
+    <Compile Include="PhotoExtractFeature.cs" />
     <Compile Include="PicturesDecryptFeature.cs" />
     <Compile Include="WildAnimalFeedFeature.cs" />
     <Compile Include="WildAnimalGiftFeature.cs" />
@@ -565,6 +569,9 @@
     <Compile Include="McpScreenshot.cs" />
     <Compile Include="PluginContract.cs" />
     <Compile Include="PluginHostFeature.cs" />
+    <Compile Include="PluginHost.Disk.cs" />
+    <Compile Include="HeartopiaComplete.PluginMono.cs" />
+    <Compile Include="HeartopiaComplete.PluginMenu.cs" />
     <Compile Include="McpOps.Plugins.cs" />
     <Compile Include="McpForensics.cs" />
     <Compile Include="McpQuitSignal.cs" />

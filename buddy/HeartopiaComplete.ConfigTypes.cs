@@ -262,6 +262,9 @@ namespace HeartopiaMod
             public bool craftDirectSendEnabled;
             public bool interactObstacleBypassEnabled;
             public bool pushSnapFixEnabled;
+            public bool pushPathClearEnabled;
+            public bool pushObstacleAheadEnabled;
+            public bool pushOutOfRangeEnabled;
             public bool interactBuildModeBypassEnabled;
             public bool petHeightLimitBypassEnabled;
             public bool persistentHudEnabled;
@@ -359,6 +362,8 @@ namespace HeartopiaMod
             public bool autoIceSkatingPreferNewMove = true;
             public int iceSkatingChallengeEndScore = 1500;
             public int shopBuyAllMaxPerItem = 200;
+            // Per-shop coin picks for Features → Auto Buy. Count > 0 means the slot is selected.
+            public List<ShopBuyPickEntry> shopBuyPicks = new List<ShopBuyPickEntry>();
             public float snowStartDelaySeconds = 0.3f;      // fill+start -> first report pause
             public float snowNextCycleDelaySeconds = 0.5f;  // gather -> next fill pause
             public int snowballUseLimit = 0;                // sculptures per run; 0 = unlimited
@@ -580,6 +585,11 @@ namespace HeartopiaMod
             public int resourceVisualEspMaxMarkers = 120;
             public bool priorityCapybaraSlab;
             public bool priorityOakSlab;
+            // Species allow-lists for Radar → Filter. Empty = no restriction. Values are insect
+            // item ids and bird entity ids (the same ids InsectSuffixToItemId / BirdSuffixToItemId
+            // resolve to). Absent on old configs, which leaves the initializer and means "all".
+            public List<int> insectSpeciesFilter = new List<int>();
+            public List<int> birdSpeciesFilter = new List<int>();
         }
 
         [Serializable]
@@ -604,6 +614,17 @@ namespace HeartopiaMod
         {
             public string Binding = "";   // "<map>/<index>", e.g. "AllKeyboardKeysMap/40"
             public string Path = "";      // control path, e.g. "<Keyboard>/e"
+        }
+
+        // One saved Auto Buy pick. Identity is the live shop slot (store + slot + storeGroup),
+        // never the session netId. Count is how many to try to buy.
+        [Serializable]
+        public class ShopBuyPickEntry
+        {
+            public int StoreId;
+            public int SlotId;
+            public int ItemId;
+            public int Count;
         }
 
         [Serializable]

@@ -474,6 +474,7 @@ namespace HeartopiaMod
         private IntPtr mapResDropDictGetter = IntPtr.Zero;   // static get_TableRandomDropsAndLowerUpperLimitsByDropGroup
         private IntPtr mapResDropDictGetItem = IntPtr.Zero;  // Dictionary.get_Item(string)
         private IntPtr mapResGetQualityMethod = IntPtr.Zero; // RewardUtility.GetQuality(RewardType,int,int)
+        private float nextItemQualityResolveAt = -999f;
         private IntPtr mapResGetEntityMethod = IntPtr.Zero;  // TableData.GetEntity(int,bool) -> TableEntity (.name)
         private int mapResGroupVerboseCount;
         private int mapTrackMatchDiagCount;
@@ -529,6 +530,19 @@ namespace HeartopiaMod
             { 1705, 61708 }, { 1801, 61216 }, { 1802, 61217 }, { 1803, 61218 }, { 1804, 61219 }, { 1805, 61220 },
             { 1901, 61509 }, { 1902, 61510 }, { 2001, 63001 }, { 2101, 61241 }, { 2102, 61238 }, { 2103, 61240 },
             { 2104, 61237 }, { 2105, 61239 },
+        };
+
+        // Variant tails that share one mesh number. The int map above cannot hold these:
+        // GetTrailingNumber("p_bird_bird902_2") is 2, and reading 902 would be Snowy Owl (61903).
+        // Joined from Bird.normalPrefabId. Aquarium/craft clones of the same prefab strip back to this tail.
+        private static readonly Dictionary<string, int> BirdPrefabTailToItemId = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            { "905_2", 61906 }, // Northern White-Faced Owl
+            { "905_3", 61905 }, // Eastern Screech Owl
+            { "902_2", 61907 }, // Palau Scops Owl
+            { "1301_2", 62001 }, // Tanzanian Woolly Bat
+            { "1301_3", 62003 }, // Long-Toothed Fruit Bat
+            { "1301_4", 62002 }, // Honduran White Bat
         };
 
         // Insect PREFAB-suffix (trailing number of p_insect_insectNNN) -> insect ITEM id (== entity
@@ -590,6 +604,77 @@ namespace HeartopiaMod
             return int.TryParse(name.Substring(start, end - start), out value) ? value : 0;
         }
 
+        // Tail after "p_bird_bird" / "p_birdphoto_birdphoto", with spawn and display suffixes removed.
+        // "p_bird_bird905_3_dots(Clone)" -> "905_3". "p_bird_bird101" -> "101". Empty when it is not a bird prefab.
+        private static string GetBirdPrefabTail(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return string.Empty;
+            }
+
+            string normalized = name.Trim().ToLowerInvariant().Replace("(clone)", string.Empty).Trim();
+            const string worldPrefix = "p_bird_bird";
+            const string photoPrefix = "p_birdphoto_birdphoto";
+            int at = normalized.IndexOf(worldPrefix, StringComparison.Ordinal);
+            int prefixLength = worldPrefix.Length;
+            if (at < 0)
+            {
+                at = normalized.IndexOf(photoPrefix, StringComparison.Ordinal);
+                prefixLength = photoPrefix.Length;
+            }
+            if (at < 0)
+            {
+                return string.Empty;
+            }
+
+            string tail = normalized.Substring(at + prefixLength);
+            bool stripped;
+            do
+            {
+                stripped = false;
+                if (tail.EndsWith("_dots", StringComparison.Ordinal))
+                {
+                    tail = tail.Substring(0, tail.Length - 5);
+                    stripped = true;
+                }
+                else if (tail.EndsWith("_aquarium", StringComparison.Ordinal))
+                {
+                    tail = tail.Substring(0, tail.Length - 9);
+                    stripped = true;
+                }
+                else if (tail.EndsWith("_craft", StringComparison.Ordinal))
+                {
+                    tail = tail.Substring(0, tail.Length - 6);
+                    stripped = true;
+                }
+                else if (tail.EndsWith("_t", StringComparison.Ordinal))
+                {
+                    tail = tail.Substring(0, tail.Length - 2);
+                    stripped = true;
+                }
+            }
+            while (stripped && tail.Length > 0);
+
+            return tail;
+        }
+
+        private static bool TryGetBirdItemIdFromPrefabName(string name, out int itemId)
+        {
+            itemId = 0;
+            string tail = GetBirdPrefabTail(name);
+            if (string.IsNullOrEmpty(tail))
+            {
+                return false;
+            }
+            if (BirdPrefabTailToItemId.TryGetValue(tail, out itemId))
+            {
+                return true;
+            }
+            int suffix;
+            return int.TryParse(tail, out suffix) && BirdSuffixToItemId.TryGetValue(suffix, out itemId);
+        }
+
         // Species ITEM id for a Bird/Insect radar marker (game-map icon). Resolved once per marker
         // (metadata persists — tracked markers), retried every 5s while the target's entity is
         // still streaming in. Insects: the entity staticId IS the item id. Birds: the entity
@@ -621,17 +706,14 @@ namespace HeartopiaMod
                 int itemId = 0;
                 if (string.Equals(label, "Bird", StringComparison.Ordinal))
                 {
-                    // PRIMARY: prefab-suffix from the tracked GO name / the ESP's resolved sprite
-                    // key — no Mono calls, works with Auto Bird Farm off. FALLBACK: staticId via
-                    // the BirdFarm aura helpers.
-                    int suffix = target != null ? GetTrailingNumber(target.name) : 0;
-                    if (suffix <= 0)
+                    // PRIMARY: prefab tail from the tracked GO name / the ESP's resolved sprite
+                    // key — no Mono calls, works with Auto Bird Farm off. Variant meshes
+                    // (905_3, 1301_2) are a string tail; a plain number still hits BirdSuffixToItemId.
+                    // FALLBACK: staticId via the BirdFarm aura helpers.
+                    string birdName = target != null ? target.name : null;
+                    if (!TryGetBirdItemIdFromPrefabName(birdName, out itemId))
                     {
-                        suffix = GetTrailingNumber(metadata.SpecificIconKey);
-                    }
-                    if (suffix > 0)
-                    {
-                        BirdSuffixToItemId.TryGetValue(suffix, out itemId);
+                        TryGetBirdItemIdFromPrefabName(metadata.SpecificIconKey, out itemId);
                     }
 
                     if (itemId <= 0 && target != null)
@@ -2376,7 +2458,51 @@ namespace HeartopiaMod
             return false;
         }
 
+        // RewardUtility.GetQuality is normally resolved by the map scan. Auto Eat needs it before that scan runs.
+        private bool EnsureItemQualityMethod()
+        {
+            if (this.mapResGetQualityMethod != IntPtr.Zero)
+            {
+                return true;
+            }
+
+            if (Time.unscaledTime < this.nextItemQualityResolveAt)
+            {
+                return false;
+            }
+
+            if (!this.EnsureAuraMonoApiReady() || !this.AttachAuraMonoThread() || auraMonoRuntimeInvoke == null)
+            {
+                return false;
+            }
+
+            IntPtr rewardCls = this.FindAuraMonoClassByFullName("XDTGameSystem.Utilities.RewardUtility");
+            if (rewardCls == IntPtr.Zero)
+            {
+                rewardCls = this.FindAuraMonoClassInImages("XDTGameSystem.Utilities", "RewardUtility",
+                    new[] { "XDTDataAndProtocol", "XDTDataAndProtocol.dll" });
+            }
+
+            if (rewardCls == IntPtr.Zero)
+            {
+                this.nextItemQualityResolveAt = Time.unscaledTime + 3f;
+                return false;
+            }
+
+            IntPtr method = this.FindAuraMonoMethodOnHierarchy(rewardCls, "GetQuality", 3);
+            if (method == IntPtr.Zero)
+            {
+                this.nextItemQualityResolveAt = Time.unscaledTime + 3f;
+                return false;
+            }
+
+            this.mapResGetQualityMethod = method;
+            this.nextItemQualityResolveAt = -999f;
+            return true;
+        }
+
         // RewardUtility.GetQuality(RewardType.Item, itemId, 0) -> item rarity (safe; reads TableEntity.rarity).
+        // A missing entity returns 0. Callers that rank food treat 0 as unknown.
         private unsafe bool TryGetItemQuality(int itemId, out int quality)
         {
             quality = 0;

@@ -45,6 +45,12 @@ namespace HeartopiaMod
         // It also belongs at the bottom on merit — it is a developer surface, not a feature.
         private const int UguiShellMcpTabIndex = 11;            // Agent (internal id 11)
 
+        // Plugins (HeartopiaComplete.PluginMenu.cs). Appended after Agent so no earlier display
+        // position moves. The sidebar row is hidden while the plugins folder has no dll; opening
+        // the menu rebuilds the shell when that changes. No shell sub-tabs: the page owns a bar
+        // it rebuilds (Installed, plus one tab per plugin page).
+        private const int UguiShellPluginsTabIndex = 12;        // Plugins (internal id 13)
+
         // Hobby is display position 4, immediately after New Features. Radar and everything
         // below it shifted +1. Ice Skating stays on New Features.
         private const int UguiShellHobbyTabIndex = 4;           // Hobby (internal id 12)
@@ -144,9 +150,11 @@ namespace HeartopiaMod
         // (HeartopiaComplete.UiKit.cs:531), and its sub array {"Main","Settings"} display indices
         // match radarSubTab's own 0/1 exactly (HeartopiaComplete.cs:2402-2403; DrawRadarTab
         // dispatches radarSubTab == 1 → DrawRadarSettingsTab, default → the main radar tab).
+        // Filter is appended at 2 so Main and Settings stay put.
         private const int UguiShellRadarTabIndex = 5;                // Radar (internal id 4)
         private const int UguiShellRadarMainSubIndex = 0;            // "Main" within Radar's subs
         private const int UguiShellRadarSettingsSubIndex = 1;        // "Settings" within Radar's subs
+        private const int UguiShellRadarFilterSubIndex = 2;          // "Filter" within Radar's subs
 
         // New Features (Phase 3 item 12 — split into rounds like Resource Gathering; round 1 =
         // Animal Care, HeartopiaComplete.UguiNewFeaturesContent.cs): display position 3 carries

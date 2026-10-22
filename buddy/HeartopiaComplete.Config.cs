@@ -263,6 +263,9 @@ namespace HeartopiaMod
             data.craftDirectSendEnabled = this.craftDirectSendEnabled;
             data.interactObstacleBypassEnabled = this.interactObstacleBypassEnabled;
             data.pushSnapFixEnabled = this.pushSnapFixEnabled;
+            data.pushPathClearEnabled = this.pushPathClearEnabled;
+            data.pushObstacleAheadEnabled = this.pushObstacleAheadEnabled;
+            data.pushOutOfRangeEnabled = this.pushOutOfRangeEnabled;
             data.interactBuildModeBypassEnabled = this.interactBuildModeBypassEnabled;
             data.petHeightLimitBypassEnabled = this.petHeightLimitBypassEnabled;
             data.persistentHudEnabled = this.persistentHudEnabled;
@@ -350,6 +353,7 @@ namespace HeartopiaMod
             data.autoIceSkatingPreferNewMove = this.autoIceSkatingPreferNewMove;
             data.iceSkatingChallengeEndScore = this.iceSkatingChallengeEndScore;
             data.shopBuyAllMaxPerItem = this.shopBuyAllMaxPerItem;
+            data.shopBuyPicks = this.CopyShopBuyPicks();
             data.snowStartDelaySeconds = this.snowStartDelaySeconds;
             data.snowNextCycleDelaySeconds = this.snowNextCycleDelaySeconds;
             data.snowballUseLimit = this.snowballUseLimit;
@@ -687,6 +691,9 @@ namespace HeartopiaMod
             this.craftDirectSendEnabled = data.craftDirectSendEnabled;
             this.interactObstacleBypassEnabled = data.interactObstacleBypassEnabled;
             this.pushSnapFixEnabled = data.pushSnapFixEnabled;
+            this.pushPathClearEnabled = data.pushPathClearEnabled;
+            this.pushObstacleAheadEnabled = data.pushObstacleAheadEnabled;
+            this.pushOutOfRangeEnabled = data.pushOutOfRangeEnabled;
             this.interactBuildModeBypassEnabled = data.interactBuildModeBypassEnabled;
             this.petHeightLimitBypassEnabled = data.petHeightLimitBypassEnabled;
             this.persistentHudEnabled = data.persistentHudEnabled;
@@ -784,6 +791,7 @@ namespace HeartopiaMod
                 data.shopBuyAllMaxPerItem > 0 ? data.shopBuyAllMaxPerItem : 200,
                 1,
                 999999);
+            this.ReplaceShopBuyPicks(data.shopBuyPicks);
             // Plain clamps (no >0 fallback): 0 is a legal user value for all three; configs saved
             // before these fields existed get the ConfigData initializers (0.3 / 0.5 / 0).
             this.snowStartDelaySeconds = Mathf.Clamp(data.snowStartDelaySeconds, SnowStartDelayMin, SnowStartDelayMax);

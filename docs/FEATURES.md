@@ -497,13 +497,62 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
   by 0.2–0.7 mm even along the grid axes, and a piece standing at 45° to the floor grid missed by
   4.3 cm. A tolerance artefact, not an obstacle.
 - **Lever:** one Mono NativeDetour on `BuildSystemBaseMode.RayDetection(in Ray, Vector3, Quaternion,
-  bool)` that calls the original, then — only for a `CrafeMode_Moving` instance (class read off the
-  vtable), `force == true`, `alignment.result == Success` and a snap of at most 0.1 m — sets the
-  alignment's XZ back to the requested destination. The push then runs the game's whole path (path
-  box-cast, confirm, save) and, because `ExecuteTask` succeeds, `CastSkill` plays the push animation.
-  Real refusals keep their own codes (`CantMoveIfObstacle` 94156, `MovingPathHasBlocked` 93200,
-  no zone at the destination), and a larger snap is left to the game.
+  bool)` that calls the original, then — for a `CrafeMode_Moving` instance (class read off the
+  vtable) with `force == true` — sets the alignment's XZ back to the requested destination at any
+  distance, and rewrites `OutOfPutZoneXZ` (309) to Success. The same toast is also
+  `GenConfirmOptions` → `BuildSingle.IsOutOfFieldBounds` returning 309; a second detour drops that
+  309 for the confirm just armed (`CancelCraftResult` clears the arm). A destination ray that
+  misses the surface nulls `placeZone` (`NoBuildingZone` / `NotMatchPutFlag`), and the confirm
+  forces 94157 on that null; the detour then calls the original again from the piece position
+  already in `_dstPosition` (the mode's ray is only 0.2 m, so that call widens it) and writes the
+  requested XZ back.
+  The path box-cast (93200) and the destination overlap (94156) are the next two toggles.
 - Live status counts the pushes it let through. Source: `buddy/PushSnapFixFeature.cs`.
+
+### Push Path Clear
+
+- Self tab toggle **Push items without the "obstacles in the path" refusal** (default off, independent
+  of Push Snap Fix). Skips **"Obstacles in the movement path."** = `ErrorCode.MovingPathHasBlocked`
+  (93200) on a ChestMove push.
+- **Why the game refuses:** after the snap check, `CrafeMode_Moving.Input_ConfirmMoveTowards` box-casts
+  from the destination back to the piece (`craftBox.boxSize * 0.4`, `LayerMasks.Building`). A
+  non-trigger hit that is not the piece itself sets 93200.
+- **Lever:** one Mono NativeDetour on `PhysicsExtension.BoxCastNonAlloc(Vector3, Vector3, Vector3,
+  XDRaycastHitArrayWrapper, Quaternion, float, int)` — the 7-argument overload, whose only caller is
+  that cast. The hook calls the original; while the toggle is on and the cast hit something, it
+  returns 0 so the 93200 loop does not run. Vehicle and ice casts use other overloads.
+  A destination that overlaps something is the next toggle (`CantMoveIfObstacle` 94156).
+- Live status counts blocked paths it cleared. Source: `buddy/PushPathClearFeature.cs`.
+
+### Push Obstacle Ahead
+
+- Self tab toggle **Push items without the "obstacle ahead" refusal** (default off, independent of
+  the two toggles above). Skips **"Obstacle ahead. Try another direction!"** =
+  `ErrorCode.CantMoveIfObstacle` (94156) on a ChestMove push.
+- **Why the game refuses:** `Input_ConfirmMoveTowards` remaps `ErrorCode.HasCollision` (92349) to
+  94156. The value comes from the destination probe (`RayDetection` stores it on the alignment) or,
+  when that probe succeeded, from `IntersectionTesting.Test` inside `GenConfirmOptions`. The 0.1 mm
+  snap check runs first: a snap miss is still 94157 and never reaches this toast.
+- **Lever:** the RayDetection detour rewrites a push-mode HasCollision result to Success, and arms
+  a one-shot only when the snap check will pass. `IntersectionTesting.Test(3)` then turns a
+  HasCollision result into Success while that arm is set. `BuildFocus.CancelCraftResult` (the
+  push's `finally`) clears the arm. Other error codes, and every placement test outside that
+  window, are unchanged.
+- Live status counts the obstacle refusals it cleared. Source: `buddy/PushObstacleAheadFeature.cs`.
+
+### Push Out Of Range
+
+- Self tab toggle **Push items without the "out of placement range" refusal** (default off,
+  independent). Skips **"Out of placement range."** Localization id 346 is
+  `ErrorCode.AlignmentInValidGrid`, not `OutOfHomeLandXZ` (314, which reads "Target outside Home
+  boundaries").
+- **Why the game refuses:** `Alignment.DetectAdsorption` returns 346 when every snapped cell fails
+  `_IsAlignmentPosInArea`. The confirm copies `alignment.result` into the tip. A piece re-ray that
+  finds a zone and then fails that grid snap leaves 346 on the alignment.
+- **Lever:** the RayDetection detour, while this toggle is on, writes that 346 back to Success and
+  puts the requested XZ on the alignment so the snap check does not turn it into 94157. A near
+  piece re-ray with 346 is accepted the same way. 314, 331 and 332 stay enforced.
+- Live status counts the range refusals it cleared. Source: `buddy/PushSnapFixFeature.cs`.
 
 ### Auto-learn Recipes
 
@@ -1356,7 +1405,8 @@ is not available at all (a boss run) or every spot refused in a row.
 
 **Auto Eat**
 
-- Default food key: `food_bluejam` (configurable type / custom name).
+- Default food option: Bad Food (`food_badfood`; configurable type / custom name).
+- Among stacks that match the selected food, eats the lowest `TableEntity.rarity` first (`RewardUtility.GetQuality`). Ties go to the stack whose `Eatable.restore` value is lower at that stack's star (`restore[starRate == 0 ? 0 : starRate - 1]`), then to the earlier backpack slot. The star is the backpack item's `_starRate` field (`get_starRate` returns 0 while the pictorial hides food stars). A rarity that cannot be read is used only after every known rarity; a restore value that cannot be read is used only after known restores of the same rarity. The shared backpack list is not reordered.
 - Eats until energy full or max attempts reached.
 - Trigger: hotkey, toast, or energy % threshold (default 20%).
 
@@ -1444,9 +1494,10 @@ Throttled background checks (`AutoEatTriggerCheckInterval`, `AutoRepairTriggerCh
 ### Buy All (Coin) — Selected Shop
 
 - **Menu:** **Features** tab → same dropdown as **Force Open Shop** → **BUY ALL (COIN)**.
-- **File:** `buddy/ShopBuyAllFeature.cs` (partial `HeartopiaComplete`).
+- **File:** `buddy/ShopBuyAllFeature.cs` (partial `HeartopiaComplete`), grid in `HeartopiaComplete.UguiFeaturesAutoBuyContent.cs`.
 - **Flow:** coroutine with 2-frame warmup → list goods → filter → buy loop (~100 ms between purchases). Status line under the button.
 - **No UI clicks** — protocol only.
+- **Grid:** coin items from `ShopSystem.GetStoreGoodsData` for the selected shop (not Face Shop, not Meteor). Click a cell to select it; the button label becomes **BUY SELECTED (COIN)** and only those rows are bought, each at the number typed on the cell. A shop stock below that number buys the remaining stock and stops that item; the rest of the selection continues. Unlimited rows (`TableStoreGroup.buyCount == 0`) ignore stock. Picks (`storeId + slotId + storeGroupId + count`) persist in `Config.xml`. An empty selection keeps **BUY ALL (COIN)** and the Max per item cap. Sold-out and already-owned rows stay visible. The list refreshes on `ShopItemUpdate`, and every 0.5 s while that hook is not installed.
 
 #### What gets bought
 
@@ -1611,7 +1662,7 @@ Reuse a captured stove set on every start **without re-scanning**, so you can ru
   With no player anchor the radius is not applied and the log says so.
 - Cooldown between bulk feed runs.
 - Per-pet single feed from UI list.
-- Food list from `PetSystem.GetFoods()` (not a full-bag scan). With no per-pet choice, sorts by favorite rank, then **lowest fullness**, then **lowest star**, then `staticId`.
+- Food list from `PetSystem.InitFoods` + `GetFoods()` (not a full-bag scan). `InitDogFoods` keeps rows with `TableDogfood.dogfood`; `InitCatFoods` keeps rows with `TableCatfood.catFood`. The picker shows only the open pet's species, so a dog does not see fish. With no per-pet choice, sorts by favorite rank, then **lowest fullness**, then **lowest star**, then `staticId`.
 - Each owned pet remembers a food **type** (`staticId`), keyed by `breedId:eyeId:whiteId:sex` from the saved pet record. The choice does not pin a backpack stack. At feed time the mod takes that type's lowest-star stack. **Skip 5 star food** drops `starRate == 5` with no fallback. **Skip Rare Food** (persisted, default on) drops the same fish staticIds as animal troughs. A pet with no choice still uses the favorite ranking, under both filters.
 
 See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
@@ -1701,6 +1752,12 @@ See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
   `IsSameType` widening), and the ESP tag (code GA, pink) crops it out of the loaded `SpriteAtlas`
   (`TryGetRadarIconFromSpriteAtlas`). Only animals streamed in around the player can be seen.
 - Toggle per category; select all / clear all.
+- **Filter** sub-tab — icon grids of known insects and birds. An empty selection shows and
+  collects every species. A selection is an allow-list: Radar markers for that category, and
+  Insect Farm / Bird Farm (including Combined Farm), keep only those species. Saved in
+  `RadarConfigData` (`insectSpeciesFilter`, `birdSpeciesFilter`). Settings → Reset Defaults
+  does not clear it. While a list is non-empty the status overlay shows `Birds` / `Insects`
+  with `N filtered`; each row has a checkbox on Settings → Status Overlay.
 - Max distance slider (25–1000 m, default 75 m).
 - Marker styles: **Default** (icon markers) or **Simple Text**.
 - Force refresh scan button.
@@ -1839,7 +1896,7 @@ Details and troubleshooting: [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#dai
 
 ## New Features — Pictures (ScreenCapture)
 
-Decrypts `persistentDataPath/ScreenCapture` to `ScreenCaptureDecrypted` (AES, same as game `EncryptUtil`). **Encrypt changed** re-imports only files whose plain SHA256 differs from `.bugtopia-manifest.json`.
+Decrypts `persistentDataPath/ScreenCapture` to `%LocalLow%/Bugtopia/ScreenCaptureDecrypted` (AES, same as game `EncryptUtil`). A folder left at `persistentDataPath/ScreenCaptureDecrypted` is moved there on the first open. **Encrypt changed** re-imports only files whose plain SHA256 differs from `.bugtopia-manifest.json`.
 
 **Draw** files are palette index maps (`TextureFormat.R8`), not normal photos. On decrypt:
 
@@ -1848,7 +1905,9 @@ Decrypts `persistentDataPath/ScreenCapture` to `ScreenCaptureDecrypted` (AES, sa
 
 Palette comes from the in-game `drawing_lut` texture (128 colors; cached as `ScreenCaptureDecrypted/.drawing_color_lut.png`). Edited colors outside the palette are quantized to the nearest entry on re-encrypt.
 
-**Upload edited drawing to the server** (open the drawing at your easel first): **Extract open drawing** dumps the live canvas to `ScreenCaptureDecrypted/drawing.png`; edit it; **Upload drawing.png** pushes the pixels to the server (DrawBoard protocol) and refreshes the in-game preview/thumbnail. This is server-authoritative — editing the local cache alone does **not** change the drawing in-game. A drawing with more than 256 colour runs goes out in chunks of 256 runs, one command per second (fixed values — the budget and delay sliders were removed 2026-09-29).
+**Upload edited drawing to the server** (open the drawing at your easel first): **Extract open drawing** dumps the live canvas to `ScreenCaptureDecrypted/drawing.png`; **Show drawing.png** selects that file in Explorer; edit it; **Upload drawing.png** pushes the pixels to the server (DrawBoard protocol) and refreshes the in-game preview/thumbnail. This is server-authoritative — editing the local cache alone does **not** change the drawing in-game. A drawing with more than 256 colour runs goes out in chunks of 256 runs, one command per second (fixed values — the budget and delay sliders were removed 2026-09-29).
+
+**Album photo** (open the photo in the album detail view first): **Extract open photo** writes `ScreenCaptureDecrypted/photo.png` from the largest encrypted cache file for that id (`1920×1080` when the local capture saved it, otherwise `1564×880`) and records the id and size in `photo.id`. **Show photo.png** selects that file in Explorer. **Upload photo.png** rebuilds the encrypted album jpgs from that PNG — `1920×1080` only when the edit is already that size, plus `1564×880`, `512×288` (the album grid) and `256×144` — then calls `PhotoSystem.SetFavourite`. The server image is still the one 1564×880 PNG. Upload refuses an already-liked photo, because that call deletes it. A 1564 source is never upscaled to 1920. `photo.png` is not part of the Pictures decrypt manifest. The open album grid keeps its decoded texture until the album is opened again.
 
 CLI parity: `tools/screen_capture_crypto.py` (`decrypt` / `encrypt-changed` / `decode-draw` / `encode-draw`; `pip install pycryptodome pillow`). Palette files: `tools/gen_drawing_palette.py`.
 
@@ -2176,6 +2235,14 @@ lazy bank loading, so without this the notes are silent (`playingId 0`). Verbose
 
 The tab is its own top-level sidebar entry (display position 8, ahead of Settings) —
 `HeartopiaComplete.UguiMusicContent.cs`; playback itself lives in `MusicPlayerFeature.cs`.
+
+---
+
+## Plugins Tab
+
+Own sidebar entry, shown only while `%LocalLow%/Bugtopia/Plugins` contains at least one plugin dll.
+A dll stays unloaded until Enabled is turned on; that choice is remembered. Inner tabs are
+Installed (enable, reload, quarantine) plus one tab per page a plugin adds. Contract: [PLUGINS.md](./PLUGINS.md).
 
 ---
 
