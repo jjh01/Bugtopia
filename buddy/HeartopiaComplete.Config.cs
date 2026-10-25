@@ -112,6 +112,7 @@ namespace HeartopiaMod
             data.keyActionPanel = (int)this.keyActionPanel;
             data.keyAuraFarm = (int)this.keyAuraFarm;
             data.keyWaterWeedRadius = (int)this.keyWaterWeedRadius;
+            data.keyForceWaterFlowers = (int)this.keyForceWaterFlowers;
             data.keyAutoFish = (int)this.keyAutoFish;
             data.keyAutoFishingTeleport = (int)this.keyAutoFishingTeleport;
             data.keyAutoFishShadowNet = (int)this.keyAutoFishShadowNet;
@@ -347,6 +348,7 @@ namespace HeartopiaMod
             // floods the log, so it always starts OFF and must be re-armed per session.
             data.autoIceSkatingEnabled = this.autoIceSkatingEnabled;
             data.autoIceSkatingMinUltimateScore = this.autoIceSkatingMinUltimateScore;
+            data.pumpkinStageScore = this.pumpkinStageScore;
             data.autoIceSkatingOnlyX2Ultimate = this.autoIceSkatingOnlyX2Ultimate;
             data.autoIceSkatingLast30sUltimate = this.autoIceSkatingLast30sUltimate;
             data.autoIceSkatingPerfectMove = this.autoIceSkatingPerfectMove;
@@ -492,6 +494,7 @@ namespace HeartopiaMod
             this.keyActionPanel = (KeyCode)data.keyActionPanel;
             this.keyAuraFarm = (KeyCode)data.keyAuraFarm;
             this.keyWaterWeedRadius = (KeyCode)data.keyWaterWeedRadius;
+            this.keyForceWaterFlowers = (KeyCode)data.keyForceWaterFlowers;
             this.keyAutoFish = (KeyCode)data.keyAutoFish;
             this.keyAutoFishingTeleport = (KeyCode)data.keyAutoFishingTeleport;
             this.keyAutoFishShadowNet = (KeyCode)data.keyAutoFishShadowNet;
@@ -779,6 +782,7 @@ namespace HeartopiaMod
             this.chatTranslateVerboseLog = false; // session-only diagnostic; never restored from config
             this.autoIceSkatingEnabled = data.autoIceSkatingEnabled;
             this.autoIceSkatingMinUltimateScore = Mathf.Clamp(data.autoIceSkatingMinUltimateScore, 0, AutoIceSkatingMinUltimateScoreSliderMax);
+            this.pumpkinStageScore = Mathf.Clamp(data.pumpkinStageScore, 0, PumpkinPerfectScore);
             this.autoIceSkatingOnlyX2Ultimate = data.autoIceSkatingOnlyX2Ultimate;
             this.autoIceSkatingLast30sUltimate = data.autoIceSkatingLast30sUltimate;
             this.autoIceSkatingPerfectMove = data.autoIceSkatingPerfectMove;
@@ -1317,6 +1321,7 @@ namespace HeartopiaMod
             this.keyActionPanel = KeyCode.None;
             this.keyAuraFarm = KeyCode.None;
             this.keyWaterWeedRadius = KeyCode.None;
+            this.keyForceWaterFlowers = KeyCode.None;
             this.keyAutoFish = KeyCode.None;
             this.keyAutoFishingTeleport = KeyCode.None;
             this.keyAutoFishShadowNet = KeyCode.None;
@@ -1457,6 +1462,7 @@ namespace HeartopiaMod
                 case "Action Panel": this.keyActionPanel = newKey; break;
                 case "Aura Farm": this.keyAuraFarm = newKey; break;
                 case "Water + Weed Radius": this.keyWaterWeedRadius = newKey; break;
+                case "Force Water Flowers": this.keyForceWaterFlowers = newKey; break;
                 case "Auto Fish Farm (Auto Teleport)": this.keyAutoFishingTeleport = newKey; break;
                 case "Auto Fishing (Teleport)": this.keyAutoFishingTeleport = newKey; break;
                 case "Auto Fish (No Teleport)": this.keyAutoFish = newKey; break;

@@ -42,7 +42,7 @@ Rules:
 
 A dll in the folder is not loaded on its own. The first load is the **Enabled** toggle on the
 Plugins tab: that writes `<id>.enabled` and loads immediately. The next launch loads that dll
-once, on the first world-ready. Later world entries do not reload. Unchecking deletes
+once, at mod start, before a world exists. Later world entries do not reload. Unchecking deletes
 `<id>.enabled` and unloads. A `<id>.disabled` sibling skips the dll even when `.enabled` is present.
 **Plugins** is its own sidebar tab, shown only while that folder contains at least one plugin dll (a
 `.disabled` or `.enabled` sibling still counts). With an empty folder the tab is not in the menu. Opening
@@ -71,8 +71,8 @@ runs on the Unity main thread.
 
 | Method | When |
 |---|---|
-| `Load(IHostApi host)` | Once, after the assembly is in memory. Throwing aborts the load and unloads the context. |
-| `Tick()` | Every frame. A tick that throws repeatedly is cooled down by the host's circuit breaker. |
+| `Load(IHostApi host)` | Once, after the assembly is in memory. An enabled disk plugin gets this at mod start, before a world exists. Throwing aborts the load and unloads the context. |
+| `Tick()` | Every frame, including the login screen. A tick that throws repeatedly is cooled down by the host's circuit breaker. |
 | `Unload()` | Once, before the context is dropped. Best-effort. |
 | `Call(string method, string argsJson)` | `plugin.call`. Return JSON, or null if the name is not handled. |
 
@@ -82,7 +82,7 @@ runs on the Unity main thread.
 |---|---|
 | `Id`, `PluginDirectory` | Id as above. Directory is the absolute plugins folder. |
 | `Log`, `Toast` | Mod log, prefixed with the id. On-screen toast. |
-| `IsWorldReady`, `WorldEpoch` | Drop per-world caches when the epoch changes. |
+| `IsWorldReady`, `WorldEpoch` | False on the login screen and during loading. Resolving or invoking game Mono before it is true faults the process. Drop per-world caches when the epoch changes. |
 | `TryGetPlayerPosition` | Local player position, or false. |
 | `StartCoroutine` | The only sanctioned scheduler. Stopped on unload. |
 | `State` | `IDictionary<string, string>`, written to `state/<id>.json`. A newline in a key or value is refused and logged. Flushed at least on unload, and about once a second while ticking if it changed. |
@@ -135,25 +135,60 @@ host drops its references, then unloads, then checks collection over a few frame
 survives is `leaked` in `plugin.list`: nothing ticks it, the memory returns on restart, and a new
 load of the same id still works.
 
+## Shipped plugins
+
+| Project | Release file | Role |
+|---------|--------------|------|
+| `plugins/BugtopiaMcp` | `BugtopiaMcp.dll` | Agent bridge. Page title **MCP Bridge**. [MCP_BRIDGE.md](./MCP_BRIDGE.md) |
+| `plugins/HelloBugtopia` | `HelloBugtopia.dll` | Template |
+
+The release workflow builds these once against `bugtopia-bepinex.dll` and attaches the dll. `internal-plugins/` is not in the repository, so it is not built or published.
+
 ## Build
 
-Template: `plugins/HelloBugtopia`.
+`buddy/build-all.bat` and `dotnet build buddy/buddy.csproj` compile every `plugins/*/*.csproj`, and every `internal-plugins/*/*.csproj` when that folder exists, against the `bugtopia.dll` just produced. `-p:BuildPlugins=false` skips them. A missing `internal-plugins` folder is not an error. Each dll, and its pdb when the build produced one, is copied into `%LocalLow%/Bugtopia/Plugins`. The build does not write `.enabled`. A locked file (the game still has it loaded) warns and leaves the previous copy in place.
+
+One project on its own, using the template:
 
 ```powershell
 dotnet build plugins/HelloBugtopia/HelloBugtopia.csproj -c Release
 ```
 
-Copy `bin/Release/net6.0/HelloBugtopia.dll` and the pdb into the plugins folder. Enter a world
-and turn **Enabled** on under Plugins. The log line is `[Plugin] loaded 'HelloBugtopia'`. The
+Copy only the dll. The pdb is optional: same file name, and it is what turns a stack trace into
+file and line numbers. Without it the plugin runs the same and the log still names the methods.
+
+```powershell
+Copy-Item plugins\HelloBugtopia\bin\Release\net6.0\HelloBugtopia.dll -Destination "$env:USERPROFILE\AppData\LocalLow\Bugtopia\Plugins" -Force
+```
+
+Enter a world and turn **Enabled** on under Plugins. The log line is `[Plugin] loaded 'HelloBugtopia'`. The
 Plugins tab shows the page. Restarting the game loads it again and increments `runs` in
 `state/HelloBugtopia.json`. Without `HelloBugtopia.enabled` it stays unloaded. A sibling
-`HelloBugtopia.disabled` skips it on the next start.
+`HelloBugtopia.disabled` skips it on the next start. A dll that is already loaded is replaced by
+**Plugins → Reload**, or by toggling Enabled off and on.
 
 `BugtopiaDll` and `InteropDir` on the csproj override the reference paths. `InteropDir` must be the
 loader interop folder that contains `UnityEngine.CoreModule.dll`.
 
+### Internal plugins
+
+`internal-plugins/` is gitignored. Projects there are not listed in `buddy.csproj` and are never
+compiled into `bugtopia.dll`. Each subdirectory is one local plugin. The mod build compiles them
+when the folder exists and copies the dll with the others. Building one by hand is the same
+command, with that project's name, and that path does not copy:
+
+```powershell
+dotnet build internal-plugins/Disconnect/Disconnect.csproj -c Release
+Copy-Item internal-plugins\Disconnect\bin\Release\net6.0\Disconnect.dll -Destination "$env:USERPROFILE\AppData\LocalLow\Bugtopia\Plugins" -Force
+```
+
+`Disconnect` returns to the city-select screen by calling `GameWorld.EnterLevel(0, null)`, the same
+transition as the in-game settings exit. The button is on its Plugins page.
+
 ## Agent path
 
-`plugin.load` / `plugin.unload` / `plugin.call` load the same host from bytes. That protocol, the
-hot-reload loop, and `tools/SamplePlugin` are in [MCP_BRIDGE.md](./MCP_BRIDGE.md) §4b. The bridge
-is a BepInEx development build (`-p:Mcp=true`). The disk folder does not need it.
+`plugin.load` / `plugin.loadFile` / `plugin.unload` / `plugin.call` load the same host. `plugin.load`
+sends the assembly as base64. `plugin.loadFile` reads `%LocalLow%/Bugtopia/Plugins/<id>.dll` and a
+sibling pdb. That protocol is [MCP_BRIDGE.md](./MCP_BRIDGE.md) §4b. The bridge itself is the
+`BugtopiaMcp` plugin. `bugtopia.dll` has no socket. `buddy/build-all.bat` compiles it and copies
+it into the Plugins folder. It does not write `.enabled`.

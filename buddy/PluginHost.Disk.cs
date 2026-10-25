@@ -46,10 +46,15 @@ namespace HeartopiaMod
             internal long Ticks;
         }
 
+        internal static event Action CleanQuit;
+
         internal static void Install()
         {
             try
             {
+                // Before any other install log line, so startup is in the ring. Enabled plugins load
+                // at the end of OnInitializeMelon, after this, and read the ring from there.
+                ModLogger.EnableRing();
                 EnsureFolder();
                 McpQuitSignal.Install();
                 ReadPreviousResident();
@@ -77,15 +82,28 @@ namespace HeartopiaMod
             }
 
             WriteResidentRaw("{\"quitSignal\":true,\"plugins\":[]}");
+            Action quit = CleanQuit;
+            if (quit != null)
+            {
+                try
+                {
+                    quit();
+                }
+                catch
+                {
+                }
+            }
         }
 
-        // Once per process, on the first world-ready. Loads only dlls the user has turned on.
-        // A new dll stays unloaded until Enabled is checked. Later worlds do not reload; Reload does.
-        internal static bool OnWorldReady()
+        // Once per process, from the end of OnInitializeMelon — before a world exists. Loads only
+        // dlls the user has turned on. A new dll stays unloaded until Enabled is checked.
+        // Later worlds do not reload; Reload does. A plugin's Load and Tick must not resolve game
+        // code until IHostApi.IsWorldReady.
+        internal static void LoadEnabledFromDisk()
         {
             if (diskLoaded)
             {
-                return true;
+                return;
             }
 
             diskLoaded = true;
@@ -97,8 +115,6 @@ namespace HeartopiaMod
             {
                 ModLogger.Warning("[Plugin] disk scan failed: " + ex.Message);
             }
-
-            return true;
         }
 
         internal static void ReloadFromDisk()
@@ -511,7 +527,7 @@ namespace HeartopiaMod
             return true;
         }
 
-        private static bool IsPluginId(string id)
+        internal static bool IsPluginId(string id)
         {
             if (string.IsNullOrEmpty(id) || id.Length > 64)
             {

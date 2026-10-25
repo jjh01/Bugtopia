@@ -4455,7 +4455,7 @@ namespace HeartopiaMod
             return this.cachedBirdPhotoCommandMonoClass;
         }
 
-        private bool ShouldTrackBirdObject(string lowerName)
+        internal bool ShouldTrackBirdObject(string lowerName)
         {
             return !string.IsNullOrEmpty(lowerName)
                 && lowerName.StartsWith("p_bird_bird", StringComparison.Ordinal)
@@ -4568,6 +4568,14 @@ namespace HeartopiaMod
                     }
 
                     if (!this.ShouldTrackBirdObject(obj.name.ToLowerInvariant()))
+                    {
+                        continue;
+                    }
+
+                    // Same prefab-name allow-list the radar uses. The census only stores positions,
+                    // and an unfiltered count makes Combined Farm switch to the bird slice and equip
+                    // the scanner for species the filter rejected.
+                    if (!this.IsRadarBirdObjectAllowed(obj))
                     {
                         continue;
                     }

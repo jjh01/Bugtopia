@@ -695,13 +695,15 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
 
 - A floating window with a graphics-app picker (SV square + hue strip + hex field + the item's own
   palette), shown automatically while a **dyeable** object is focused in build mode.
-- **Why it is possible at all:** the game's palette is a client-UI limit, not a data or server one.
-  `DyeColorData.color` is a raw packed int, the live renderer `DyeColorClientUtil.GetDyeColor` uses
-  it directly with no palette lookup, and `DyeColorCosts` keys on `(staticId, body)` — the PART, so
-  the price does not depend on the colour. Measured 2026-09-09 on Workbench 330001: a pure-magenta
-  `0xFF00FFFF` applied, saved, survived a level transition out of the build sandbox, and the server
-  **charged 2 units of Dye (41001), 11 → 9**. A rejected op would have hit
-  `RevertInvalidLocalOperations` + `CraftBank.RevertCurrency` instead.
+- **What the owner sees is not what a visitor sees.** The owner's renderer
+  (`DyeColorClientUtil.GetDyeColor`) paints the raw packed `Color32`. A second client shows the
+  colour only when that `Color32` is byte-identical to one entry of this item's palette. One
+  channel off is drawn as the part's default, not as a near colour. Full rule, the window
+  measurement, and the Confirm/Save split: [DYE_REPLICATION.md](./DYE_REPLICATION.md).
+- `DyeColorCosts` keys on `(staticId, body)` — the part, so the price does not depend on which
+  swatch was picked. Measured 2026-09-09 on Workbench 330001: a pure-magenta `0xFF00FFFF` was
+  accepted and the server charged 2 Dye (`41001`, 11 → 9). That was not a two-client check. A
+  rejected op would have hit `RevertInvalidLocalOperations` + `CraftBank.RevertCurrency`.
 - The game itself ships an unreachable version of this: `DyeColorPanel_Auto` binds
   `customDyeBar@go` (H/S/V sliders, three recent-colour slots, confirm/cancel) and the server syncs
   `LatestUsedDayColorComponent` for the recent list — but the only code that reveals it hangs off a
@@ -718,8 +720,10 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
   black value ramp), so only a `img.color =` changes with the hue — no per-frame texture rebuild.
   Pointer input is POLLED like the kit's window drag (no injected `IDragHandler`). The object
   recolours live, throttled to 12.5 Hz with a guaranteed apply on release; the focus walk runs at
-  10 Hz and pauses entirely during a drag. Nothing is sent: the change rides the player's own build
-  confirm and the server prices it normally.
+  10 Hz and pauses entirely during a drag. Nothing is sent by the picker. Confirm on the dye
+  panel only queues a local `OptionDyeColor`. The upload is `BuildStatusPanel.Save`, and only
+  while craft state is Free — see [DYE_REPLICATION.md](./DYE_REPLICATION.md). A colour that is
+  not an exact palette entry stays on the owner.
 - Toggle persisted in config (`furnitureDyePickerEnabled`). Implementation:
   `FurnitureDyeFeature.cs` (model) + `HeartopiaComplete.UguiColorPicker.cs` (window).
 
@@ -1478,7 +1482,8 @@ Throttled background checks (`AutoEatTriggerCheckInterval`, `AutoRepairTriggerCh
 **Tab:** Hobby → **Pumpkin Carving** (`UguiShellHobbyTabIndex` / `UguiShellHobbyPumpkinSubIndex`). Source: `buddy/PumpkinCarvingFeature.cs`; UI in `buddy/HeartopiaComplete.UguiHobbyContent.cs`.
 
 - Needs a rough already placed on a pumpkin base (`EntityType.pumpkinrough = 802`). Cultivation and furniture placement are not part of this toggle.
-- Sends `StartMakingPumpkinCarving(baseNetId, pumpkinNetId)` and, in the same tick, `FinishMakingPumpkinCarving(pumpkinNetId, {100,100,100,100})`. The vanilla curve is 30–40 s; the report does not wait for it. Four stages for every rarity; 100 is rating id 5.
+- Sends `StartMakingPumpkinCarving(baseNetId, pumpkinNetId)` and, in the same tick, `FinishMakingPumpkinCarving` with the page's stage score on all four stages (0–100, default 100). The vanilla curve is 30–40 s; the report does not wait for it. Four stages for every rarity; 100 is rating id 5. The value is stored in Config.xml as `pumpkinStageScore`.
+- **Help:** the mod does not send `Start` for a rough whose `BuildComponent.OwnerId` is not the local player. While Auto Pumpkin Carving is on, a rough within 60 m with `rotate == true` is cached. The interact button is the only way in. `JoinPumpkinCarvingEvent` for that net id is swallowed before `GamePumpkinCarvingMode` opens, then `FinishMakingPumpkinCarving` is sent once with that same stage score on all four stages. Expire and result stay suppressed for up to 45 s, or until the result event / the rough view disappears. `rotate == true` does not end the wait. Auto-collect and auto-place do not run for that rough. A menu notification ("Helped carve a pumpkin") shows when that Finish is sent. The host pumpkin can still be in the world. A click before the cache sees the rough opens the vanilla panel and is not finished by the mod. An own idle rough in range still takes the solo `Start` path first.
 - **Auto-place pumpkin from backpack:** when no own rough is nearby, places a `TablePumpkinbase` item in front of the player if no own base is in range, otherwise places a `TablePumpkinrough` item as a child of the nearest own base, 0.5 m above the base pivot.
 - While the session runs, `JoinPumpkinCarvingEvent`, `InformPumpkinCarvingExpireEvent` and `InformPumpkinCarvingResultEvent` are swallowed, so the carving mode, the QTE panel and the result toast do not open. A manual carve during that window is swallowed too.
 - `InformPumpkinCarvingResultEvent` carries the finished entity id, not the rough (plain carve: rough `N`, result `N+1`/`N+2`; a result-effect carve can land much further, live `+9` through `+4633`). Any later id during the session counts, so collect is not held for the 8 s timeout. The spent rough id is ignored by the next scan so a lingering view cannot block placement. `[PumpkinCarving]` logs result (`match`/`near`), expire, and `rough gone <ms>`.
@@ -1663,7 +1668,7 @@ Reuse a captured stove set on every start **without re-scanning**, so you can ru
 - Cooldown between bulk feed runs.
 - Per-pet single feed from UI list.
 - Food list from `PetSystem.InitFoods` + `GetFoods()` (not a full-bag scan). `InitDogFoods` keeps rows with `TableDogfood.dogfood`; `InitCatFoods` keeps rows with `TableCatfood.catFood`. The picker shows only the open pet's species, so a dog does not see fish. With no per-pet choice, sorts by favorite rank, then **lowest fullness**, then **lowest star**, then `staticId`.
-- Each owned pet remembers a food **type** (`staticId`), keyed by `breedId:eyeId:whiteId:sex` from the saved pet record. The choice does not pin a backpack stack. At feed time the mod takes that type's lowest-star stack. **Skip 5 star food** drops `starRate == 5` with no fallback. **Skip Rare Food** (persisted, default on) drops the same fish staticIds as animal troughs. A pet with no choice still uses the favorite ranking, under both filters.
+- Each owned pet remembers a food **type** (`staticId`), keyed by `breedId:eyeId:whiteId:sex` from the saved pet record. The choice does not pin a backpack stack. At feed time the mod takes that type's lowest-star stack. **Skip 5 star food** drops `starRate == 5` with no fallback. **Skip Rare Food** (persisted, default on) drops the same fish staticIds as animal troughs, and any item whose `TableEntity.rarity` is 5 (`TableData.GetEntity`). A pet with no choice still uses the favorite ranking, under both filters.
 
 See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
 
@@ -1835,7 +1840,7 @@ Full pipeline: [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#bag--warehouse-tr
 
 - Scans **backpack** via `GetAllItem`; matches food allowed for the animal **group** (fullness table per `staticId` + star).
 - **Skip 5 Star Food** (default on): never uses 5★ food. This, Skip Rare Food and Skip Egg are saved in the config.
-- **Skip Rare Food** (default on): never uses the 31 fish that cannot be caught in sunny weather (rain/snow and/or rainbow only) — `WildAnimalFeedRareFishStaticIds`, generated with `tools/HeartopiaTables/conditional_spawns.py --weather-not 1`.
+- **Skip Rare Food** (default on): never uses the 31 fish that cannot be caught in sunny weather (rain/snow and/or rainbow only) — `WildAnimalFeedRareFishStaticIds`, generated with `tools/HeartopiaTables/conditional_spawns.py --weather-not 1` — and never uses an item whose `TableEntity.rarity` is 5.
 - Picks food with highest score: bond EXP (favorites weighted) + fullness contribution.
 - Manual **Feed**; separate from daily quests.
 
@@ -1947,7 +1952,7 @@ Tab layout (top → bottom):
 3. **Privacy Pause** — single slider (0–100 m, **0 = off**, default off); **persisted to config**.
 4. **Crops** — seed source (Backpack / Warehouse / Both), Refresh seeds, seed selector.
 5. **Fertilizer** — fertilizer source, Refresh fertilizers, fertilizer selector.
-6. **Operations** — buttons: Water in radius · Harvest · Weed · Collect seeds · **Sow** · **Fertilize** · Log diagnostics.
+6. **Operations** — buttons: Water in radius · **Force water flowers** · Harvest · Weed · Collect seeds · **Sow** · **Fertilize** · Log diagnostics.
 7. Status panel + **Stop** (cancels the running operation).
 
 ### Manual operations (radius)
@@ -1955,6 +1960,7 @@ Tab layout (top → bottom):
 | Button | Action | Owner filter |
 |--------|--------|--------------|
 | Water in radius | Waters crop boxes + plants (batch = watering hobby-skill cell count) | any |
+| Force water flowers | Sends `WaterPlant` for every flower in radius, including ones the client already counts as fully watered. Crop boxes stay on Water in radius. Same sprinkler batch size | any |
 | Weed | Removes the `hasWeed` flag on crops | any |
 | Harvest | Collects ripe crops (`stage == 4`) | **own only** |
 | Collect seeds | Collects ready plant seeds | any |
@@ -1991,7 +1997,7 @@ frame, so a rotated plot measures correctly.
 - **Inert while you are away from the field** — ECS entities stream around the player, not around the
   plot, so at distance the scan cannot see who is at home. It says so once in the log; remote weeding
   and sowing keep running.
-- Manual tab buttons and the water+weed hotkey are **not** gated — they are an explicit user action.
+- Manual tab buttons and the water+weed / force-water-flowers hotkeys are **not** gated — they are an explicit user action.
 - Resolution failures fail **open** (farm keeps running) and are always logged under
   `[HomelandFarmPrivacy]`; pause/resume transitions log one line each.
 
@@ -2241,8 +2247,18 @@ The tab is its own top-level sidebar entry (display position 8, ahead of Setting
 ## Plugins Tab
 
 Own sidebar entry, shown only while `%LocalLow%/Bugtopia/Plugins` contains at least one plugin dll.
-A dll stays unloaded until Enabled is turned on; that choice is remembered. Inner tabs are
-Installed (enable, reload, quarantine) plus one tab per page a plugin adds. Contract: [PLUGINS.md](./PLUGINS.md).
+A dll stays unloaded until Enabled is turned on; that choice is remembered, and the next launch
+loads it at mod start, before a world. Inner tabs are
+Installed (enable, reload, quarantine) plus one tab per page a plugin adds.
+
+Shipped with the release. `buddy/build-all.bat` compiles them and copies the dlls into the Plugins folder:
+
+| Dll | Page |
+|-----|------|
+| `BugtopiaMcp.dll` | **MCP Bridge** — agent bridge. Off until Enabled. Writes and unsafe stay off for the session. [MCP_BRIDGE.md](./MCP_BRIDGE.md) |
+| `HelloBugtopia.dll` | Sample page |
+
+Contract, folder layout, and `internal-plugins/`: [PLUGINS.md](./PLUGINS.md).
 
 ---
 
@@ -2330,7 +2346,7 @@ All default to **KeyCode.None** except menu toggle. Grouped as in Settings → K
 | Section | Keybinds |
 |---------|----------|
 | CORE | Toggle Menu (**Insert**), Toggle Radar, Bypass UI, Disable All, Inspect Player, Inspect Move |
-| AUTOMATION | Auto Foraging, Aura Farm, Water + Weed Radius, Auto Insect Farm, Auto Bird Farm, Fish Shadow Net, Mass Cook, Auto Puzzle, Auto Cat Play, Auto Dog Train, Auto Pet Wash, Feed All Cats, Feed All Dogs, Auto Snow Sculpture, Auto Sand Sculpture, Auto Pumpkin Carving, Bird Vacuum, Spawn Bubble, Auto Repair, Auto Eat |
+| AUTOMATION | Auto Foraging, Aura Farm, Water + Weed Radius, Force Water Flowers, Auto Insect Farm, Auto Bird Farm, Fish Shadow Net, Mass Cook, Auto Puzzle, Auto Cat Play, Auto Dog Train, Auto Pet Wash, Feed All Cats, Feed All Dogs, Auto Snow Sculpture, Auto Sand Sculpture, Auto Pumpkin Carving, Bird Vacuum, Spawn Bubble, Auto Repair, Auto Eat |
 | PLAYER | Noclip, Camera Toggle, Auto Ice Skating, Join My Town, Anti AFK, Bypass Overlap |
 | SPEED & TOOLS | Game Speed 1×/2×/5×/10×, Equip Axe / Net / Rod / Sprinkler / Bird Scanner / Pad |
 
@@ -2400,5 +2416,7 @@ See root [README.md](../README.md) disclaimer.
 
 - [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md) — inventory access, filters, sorting per feature
 - [BUILD_AND_RUN.md](./BUILD_AND_RUN.md)
+- [PLUGINS.md](./PLUGINS.md) — disk plugins, enable, build
+- [MCP_BRIDGE.md](./MCP_BRIDGE.md) — agent bridge
 - [TECHNICAL.md](./TECHNICAL.md)
 - [TYPE_RESOLUTION.md](./TYPE_RESOLUTION.md)

@@ -36,7 +36,8 @@ Guide for AI agents and developers working on this mod. Read this file first, th
 | Inventory / `ItemNetPair` / bag pipelines | [docs/BACKPACK_AND_ITEMS.md](docs/BACKPACK_AND_ITEMS.md) |
 | Instrument WAV export (noteId ↔ Wwise subsong) | [docs/INSTRUMENT_SAMPLE_EXPORT.md](docs/INSTRUMENT_SAMPLE_EXPORT.md) |
 | **Game actions / animations** (what makes one play, combo gates, which are safe to cast) | [docs/GAME_ACTIONS.md](docs/GAME_ACTIONS.md) |
-| **Asking the RUNNING game instead of the dumps** (type search, live field/method tables, entity enumeration, `eval`, screenshots) — and reaching a game on a **second machine** over SSH | [docs/MCP_BRIDGE.md](docs/MCP_BRIDGE.md) |
+| **Furniture dye** — which colour a second client actually shows, Confirm vs Save | [docs/DYE_REPLICATION.md](docs/DYE_REPLICATION.md) |
+| **Asking the RUNNING game instead of the dumps** (type search, live field/method tables, entity enumeration, `eval`, screenshots) — and reaching a game on a **second machine** over SSH. The bridge is the `BugtopiaMcp` disk plugin, not a mod build flag | [docs/MCP_BRIDGE.md](docs/MCP_BRIDGE.md) |
 | **User plugins** — contract, folder, build | [docs/PLUGINS.md](docs/PLUGINS.md) |
 
 **Rule:** Do not guess type names from memory. Copy **full namespaces** from decompilations or interop DLLs for the target game build.
@@ -114,6 +115,8 @@ dotnet build buddy.csproj -c Release -p:Loader=MelonLoader    # MelonLoader only
 ```
 
 One-off path override: add `-p:HeartopiaDir="C:\Games\Heartopia"`. Shipping build (hides loader console): `-c ReleaseShip`.
+
+That build also compiles every `plugins\*\*.csproj`, and every `internal-plugins\*\*.csproj` when that folder exists, against the dll it just produced, then copies each dll into `%LocalLow%\Bugtopia\Plugins`. It does not write `.enabled`. A missing `internal-plugins` folder is skipped. `-p:BuildPlugins=false` skips both. The release workflow builds the tracked plugins once, against the published BepInEx dll, and attaches them to the release. `internal-plugins` is not in the repository, so that workflow does not build it.
 
 ### Build the launcher
 
