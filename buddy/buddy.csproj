@@ -478,6 +478,7 @@
     <Compile Include="HomelandFarmFeature.cs" />
     <Compile Include="HomelandFarmEventDiagFeature.cs" />
     <Compile Include="HomelandFarmPrivacyPauseFeature.cs" />
+    <Compile Include="HomelandFarmPlotRegionFeature.cs" />
     <Compile Include="IceSkatingSequenceFeature.cs" />
     <Compile Include="PadBuildHotkeyFeature.cs" />
     <Compile Include="PrivacyBlockFeature.cs" />
