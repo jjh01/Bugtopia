@@ -609,6 +609,13 @@ namespace HeartopiaMod
             {
                 this.ApplyCameraFOV();
             }
+
+            // Clean Photos (HeartopiaComplete.PhotoSnapUi.cs) — LAST line of LateUpdate: hide the
+            // mod's drawn surfaces while the game holds a snap-open capture window. Runs after
+            // ProcessUguiOverlayFrame and after every OnUpdate feature driver (they re-activate their
+            // roots there), yet LateThunk is still inside PreLateUpdate — before the canvas render
+            // subsystems compose the frame, which is the frame the photo captures.
+            this.ProcessPhotoSnapUiOnLateUpdate();
         }
 
         // Token: 0x06000005 RID: 5 RVA: 0x000024C0 File Offset: 0x000006C0
@@ -1057,6 +1064,11 @@ namespace HeartopiaMod
                     this.StopAllAutoFishing();
                     this.autoSellEnabled = false;
                     this.netCookEnabled = false;
+                    this.netCookAutoAssist = false;
+                    // Same reason the UGUI toggle clears on its off-edge: without this a Phase-3 assist
+                    // object survives Disable All and the next enable would ContinueCook a dish that
+                    // already ended (SyncNetCookAssistWatchList keeps existing objects).
+                    this.ClearNetCookAssistWatchList();
                     this.netCookDrainAfterIngredientsRunOut = false;
                     this.netCookDrainReason = null;
                     this.puzzleAutoEnabled = false;
@@ -1189,6 +1201,10 @@ namespace HeartopiaMod
                     this.autoPumpkinEnabled = !this.autoPumpkinEnabled;
                     this.AddMenuNotification(this.L("Auto Pumpkin Carving") + ": " + (this.autoPumpkinEnabled ? this.L("On") : this.L("Off")),
                         this.autoPumpkinEnabled ? new Color(0.45f, 1f, 0.55f) : new Color(1f, 0.55f, 0.55f));
+                }
+                if (this.TryGetModHotkeyDown(this.autoFurnitureRepairHotkey))
+                {
+                    this.SetFurnitureRepairEnabled(!this.autoFurnitureRepairEnabled);
                 }
                 if (this.TryGetModHotkeyDown(this.seaCleanQteHotkey))
                 {
@@ -1392,13 +1408,14 @@ namespace HeartopiaMod
             // Camera FOV will be applied in OnLateUpdate to avoid competing with game camera updates
 
             this.ApplyGameSpeed();
-            if (this.netCookEnabled)
+            if (this.netCookEnabled || this.netCookAutoAssist)
             {
                 this.ProcessNetCookLoop();
             }
             this.ProcessSnowSculptureOnUpdate();
             this.ProcessSandSculptureOnUpdate();
             this.ProcessPumpkinCarvingOnUpdate();
+            this.ProcessFurnitureAutoRepairOnUpdate();
             this.ProcessSeaCleanQteOnUpdate();
             this.ProcessCorruptionCleanseOnUpdate();
             if (this.autoFishingFarmBreaker.ShouldRun(Time.unscaledTime))
@@ -4448,7 +4465,11 @@ namespace HeartopiaMod
         private const float NetCookPostMoveMaterialRetrySeconds = 3f;
         private const float NetCookPostMoveMaterialRetryIntervalSeconds = 0.12f;
         private bool netCookEnabled = false;
-        private bool netCookMiniGameOnly = false;
+        // Auto Cook Assist: a second, independent Mass Cook flag. While on, the mod watches the captured
+        // stoves and answers cooking mini-games (danger relief / ContinueCooking / collect) without ever
+        // preparing or starting a dish. Mass cook may run at the same time; the two loops arbitrate by
+        // stove ownership (HeartopiaComplete.NetCook.cs — ProcessNetCookLoop).
+        private bool netCookAutoAssist = false;
         // Permanent Stove Memory: keep the captured stove set and reuse it on every mass-cook start
         // without re-scanning, bypassing the distance/position culls so remote re-cooks use ALL
         // remembered stoves (not just the last one). The registry (netCookRegisteredTargets) is the
@@ -4550,6 +4571,10 @@ namespace HeartopiaMod
         // CookingSystem.CheckFoodTypeSatisfied (table-backed, static per level) so cache liberally.
         private readonly Dictionary<long, bool> netCookFoodTypeMatchCache = new Dictionary<long, bool>(256);
         private readonly List<NetCookTargetContext> netCookTargets = new List<NetCookTargetContext>(16);
+        // Assist state is a separate object per level-object. Snapshot entries and netCookTargets
+        // entries carry mass-cook phase; aliasing them makes one loop's Phase write look like ownership
+        // to the other loop.
+        private readonly List<NetCookTargetContext> netCookAssistTargets = new List<NetCookTargetContext>(64);
         private readonly Dictionary<string, NetCookTargetContext> netCookRegisteredTargets = new Dictionary<string, NetCookTargetContext>(32);
         private readonly Dictionary<uint, NetCookRegisteredWorldCooker> netCookRegisteredWorldCookers = new Dictionary<uint, NetCookRegisteredWorldCooker>(64);
         private readonly Dictionary<int, int> netCookCookerTypeCache = new Dictionary<int, int>(8);

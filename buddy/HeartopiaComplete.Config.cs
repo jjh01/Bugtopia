@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppInterop.Runtime.Runtime;
@@ -137,6 +137,8 @@ namespace HeartopiaMod
             data.keyAutoSnow = (int)this.autoSnowHotkey;
             data.keyAutoSand = (int)this.autoSandHotkey;
             data.keyAutoPumpkin = (int)this.autoPumpkinHotkey;
+            data.keyAutoFurnitureRepair = (int)this.autoFurnitureRepairHotkey;
+            data.autoFurnitureRepairEnabled = this.autoFurnitureRepairEnabled;
             data.keySeaCleanQte = (int)this.seaCleanQteHotkey;
             data.keyEquipSeaCleaner = (int)this.keyEquipSeaCleaner;
             data.seaCleanAutoRadius = this.seaCleanAutoRadius;
@@ -247,6 +249,8 @@ namespace HeartopiaMod
             data.quietBpPayRewardPopup = this.quietBpPayRewardPopup;
             data.quietPetPhotoResultPopup = this.quietPetPhotoResultPopup;
             data.quietAnimalCardPopups = this.quietAnimalCardPopups;
+            data.hideModUiInPhotos = this.hideModUiInPhotos;
+            data.hideModEspInPhotos = this.hideModEspInPhotos;
             data.emoteUnlockEnabled = this.emoteUnlockEnabled;
             data.paintStyleUnlockEnabled = this.paintStyleUnlockEnabled;
             data.freePlaceRotateUnlockEnabled = this.freePlaceRotateUnlockEnabled;
@@ -324,6 +328,7 @@ namespace HeartopiaMod
             data.MasterLogSandSculpture = MasterLogSandSculpture;
             data.MasterLogShowOffBypass = MasterLogShowOffBypass;
             data.MasterLogSnowSculpture = MasterLogSnowSculpture;
+            data.MasterLogSnowAutoCollect = MasterLogSnowAutoCollect;
             data.MasterLogSeaCleanQte = MasterLogSeaCleanQte;
             data.MasterLogCorruptionCleanse = MasterLogCorruptionCleanse;
             data.MasterLogUnderwaterRadar = MasterLogUnderwaterRadar;
@@ -360,6 +365,9 @@ namespace HeartopiaMod
             data.snowNextCycleDelaySeconds = this.snowNextCycleDelaySeconds;
             data.snowballUseLimit = this.snowballUseLimit;
             data.snowQteSuccessCount = this.snowQteSuccessCount;
+            data.autoSnowCollectEnabled = this.autoSnowCollectEnabled;
+            data.snowMachineScanSeconds = this.snowMachineScanSeconds;
+            data.snowMachineScanRadius = this.snowMachineScanRadius;
             data.fastBubbleGenEnabled = this.fastBubbleGenEnabled;
             data.musicPlayerLoop = this.musicPlayerLoop;
             data.musicPlayerNetworkMode = this.musicPlayerNetworkMode;
@@ -374,7 +382,8 @@ namespace HeartopiaMod
             data.petFeedFoodByPet = this.SerializePetFeedFoodPrefs();
             data.netCookInterval = this.netCookInterval;
             data.netCookScanRadiusMeters = this.netCookScanRadiusMeters;
-            data.netCookMiniGameOnly = this.netCookMiniGameOnly;
+            data.netCookAutoAssist = this.netCookAutoAssist;
+            data.netCookMiniGameOnly = false; // legacy key — write false so a stale true never re-migrates
             data.netCookMoveIngredients = this.netCookMoveIngredients;
             data.netCookRememberStoves = this.netCookRememberStoves;
             data.netCookSlotManualMode = this.netCookSlotManualMode;
@@ -519,6 +528,8 @@ namespace HeartopiaMod
             this.autoSnowHotkey = (KeyCode)data.keyAutoSnow;
             this.autoSandHotkey = (KeyCode)data.keyAutoSand;
             this.autoPumpkinHotkey = (KeyCode)data.keyAutoPumpkin;
+            this.autoFurnitureRepairHotkey = (KeyCode)data.keyAutoFurnitureRepair;
+            this.autoFurnitureRepairEnabled = data.autoFurnitureRepairEnabled;
             this.seaCleanQteHotkey = (KeyCode)data.keySeaCleanQte;
             this.keyEquipSeaCleaner = (KeyCode)data.keyEquipSeaCleaner;
             this.seaCleanAutoRadius = data.seaCleanAutoRadius <= 0f
@@ -677,6 +688,8 @@ namespace HeartopiaMod
             this.quietBpPayRewardPopup = data.quietBpPayRewardPopup;
             this.quietPetPhotoResultPopup = data.quietPetPhotoResultPopup;
             this.quietAnimalCardPopups = data.quietAnimalCardPopups;
+            this.hideModUiInPhotos = data.hideModUiInPhotos;
+            this.hideModEspInPhotos = data.hideModEspInPhotos;
             this.emoteUnlockEnabled = data.emoteUnlockEnabled;
             this.paintStyleUnlockEnabled = data.paintStyleUnlockEnabled;
             this.freePlaceRotateUnlockEnabled = data.freePlaceRotateUnlockEnabled;
@@ -759,6 +772,7 @@ namespace HeartopiaMod
             MasterLogSandSculpture = data.MasterLogSandSculpture;
             MasterLogShowOffBypass = data.MasterLogShowOffBypass;
             MasterLogSnowSculpture = data.MasterLogSnowSculpture;
+            MasterLogSnowAutoCollect = data.MasterLogSnowAutoCollect;
             MasterLogSeaCleanQte = data.MasterLogSeaCleanQte;
             MasterLogCorruptionCleanse = data.MasterLogCorruptionCleanse;
             MasterLogUnderwaterRadar = data.MasterLogUnderwaterRadar;
@@ -802,6 +816,12 @@ namespace HeartopiaMod
             this.snowNextCycleDelaySeconds = Mathf.Clamp(data.snowNextCycleDelaySeconds, SnowNextCycleDelayMin, SnowNextCycleDelayMax);
             this.snowballUseLimit = Mathf.Max(0, data.snowballUseLimit);
             this.snowQteSuccessCount = Mathf.Clamp(data.snowQteSuccessCount, SnowQteSuccessMin, SnowQteSuccessMax);
+            // Auto collect snowballs: the toggle is persisted (unlike Auto Snow Sculpture), and the
+            // two knobs are clamped to the same ranges the menu sliders use. A config saved before
+            // these fields existed gets the ConfigData initializers (false / 2f / 30f).
+            this.autoSnowCollectEnabled = data.autoSnowCollectEnabled;
+            this.snowMachineScanSeconds = Mathf.Clamp(data.snowMachineScanSeconds, SnowMachineScanMin, SnowMachineScanMax);
+            this.snowMachineScanRadius = Mathf.Clamp(data.snowMachineScanRadius, SnowMachineRadiusMin, SnowMachineRadiusMax);
             this.fastBubbleGenEnabled = data.fastBubbleGenEnabled;
             this.musicPlayerLoop = data.musicPlayerLoop;
             this.musicPlayerNetworkMode = data.musicPlayerNetworkMode;
@@ -816,7 +836,7 @@ namespace HeartopiaMod
             this.DeserializePetFeedFoodPrefs(data.petFeedFoodByPet);
             this.netCookInterval = Mathf.Clamp(data.netCookInterval > 0f ? data.netCookInterval : 1.5f, 0.25f, 10f);
             this.netCookScanRadiusMeters = Mathf.Clamp(data.netCookScanRadiusMeters > 0f ? data.netCookScanRadiusMeters : NetCookDefaultScanRadiusMeters, NetCookMinScanRadiusMeters, NetCookMaxScanRadiusMeters);
-            this.netCookMiniGameOnly = data.netCookMiniGameOnly;
+            this.netCookAutoAssist = data.netCookAutoAssist || data.netCookMiniGameOnly; // legacy key migrates in
             this.netCookMoveIngredients = data.netCookMoveIngredients;
             this.netCookRememberStoves = data.netCookRememberStoves;
             this.netCookSlotManualMode = data.netCookSlotManualMode;
@@ -1086,6 +1106,7 @@ namespace HeartopiaMod
                 if (File.Exists(path))
                 {
                     string[] lines = File.ReadAllLines(path);
+                    bool netCookAutoAssistSeen = false; // lets the new key win over the legacy netCookMiniGameOnly line
                     foreach (string line in lines)
                     {
                         if (line.Contains("keyToggleMenu")) this.keyToggleMenu = (KeyCode)GetJsonInt(line, "\"keyToggleMenu\":");
@@ -1106,6 +1127,8 @@ namespace HeartopiaMod
                         else if (line.Contains("keyAutoSnow")) this.autoSnowHotkey = (KeyCode)GetJsonInt(line, "\"keyAutoSnow\":");
                         else if (line.Contains("keyAutoSand")) this.autoSandHotkey = (KeyCode)GetJsonInt(line, "\"keyAutoSand\":");
                         else if (line.Contains("keyAutoPumpkin")) this.autoPumpkinHotkey = (KeyCode)GetJsonInt(line, "\"keyAutoPumpkin\":");
+                        else if (line.Contains("keyAutoFurnitureRepair")) this.autoFurnitureRepairHotkey = (KeyCode)GetJsonInt(line, "\"keyAutoFurnitureRepair\":");
+                        else if (line.Contains("autoFurnitureRepairEnabled")) this.autoFurnitureRepairEnabled = GetJsonInt(line, "\"autoFurnitureRepairEnabled\":") != 0;
                         else if (line.Contains("keyJoinPublic")) this.keyJoinPublic = (KeyCode)GetJsonInt(line, "\"keyJoinPublic\":");
                         else if (line.Contains("keyJoinMyTown")) this.keyJoinMyTown = (KeyCode)GetJsonInt(line, "\"keyJoinMyTown\":");
                         else if (line.Contains("keyAutoInsectFarm")) this.keyAutoInsectFarm = (KeyCode)GetJsonInt(line, "\"keyAutoInsectFarm\":");
@@ -1144,6 +1167,8 @@ namespace HeartopiaMod
                         else if (line.Contains("quietCongratsPopups")) this.quietCongratsPopups = GetJsonInt(line, "\"quietCongratsPopups\":") != 0;
                         else if (line.Contains("quietBpPayRewardPopup")) this.quietBpPayRewardPopup = GetJsonInt(line, "\"quietBpPayRewardPopup\":") != 0;
                         else if (line.Contains("quietPetPhotoResultPopup")) this.quietPetPhotoResultPopup = GetJsonInt(line, "\"quietPetPhotoResultPopup\":") != 0;
+                        else if (line.Contains("hideModUiInPhotos")) this.hideModUiInPhotos = GetJsonInt(line, "\"hideModUiInPhotos\":") != 0;
+                        else if (line.Contains("hideModEspInPhotos")) this.hideModEspInPhotos = GetJsonInt(line, "\"hideModEspInPhotos\":") != 0;
                         else if (line.Contains("skipCraftDyeAnimations")) this.skipCraftDyeAnimations = GetJsonInt(line, "\"skipCraftDyeAnimations\":") != 0;
                         else if (line.Contains("autoLearnRecipes")) this.autoLearnRecipes = GetJsonInt(line, "\"autoLearnRecipes\":") != 0;
                         else if (line.Contains("autoLikeOwnHome")) this.autoLikeOwnHome = GetJsonInt(line, "\"autoLikeOwnHome\":") != 0;
@@ -1166,6 +1191,9 @@ namespace HeartopiaMod
                         else if (line.Contains("snowNextCycleDelaySeconds")) this.snowNextCycleDelaySeconds = Mathf.Clamp(GetJsonFloat(line, "\"snowNextCycleDelaySeconds\":"), SnowNextCycleDelayMin, SnowNextCycleDelayMax);
                         else if (line.Contains("snowballUseLimit")) this.snowballUseLimit = Mathf.Max(0, GetJsonInt(line, "\"snowballUseLimit\":"));
                         else if (line.Contains("snowQteSuccessCount")) this.snowQteSuccessCount = Mathf.Clamp(GetJsonInt(line, "\"snowQteSuccessCount\":"), SnowQteSuccessMin, SnowQteSuccessMax);
+                        else if (line.Contains("autoSnowCollectEnabled")) this.autoSnowCollectEnabled = GetJsonInt(line, "\"autoSnowCollectEnabled\":") != 0;
+                        else if (line.Contains("snowMachineScanSeconds")) this.snowMachineScanSeconds = Mathf.Clamp(GetJsonFloat(line, "\"snowMachineScanSeconds\":"), SnowMachineScanMin, SnowMachineScanMax);
+                        else if (line.Contains("snowMachineScanRadius")) this.snowMachineScanRadius = Mathf.Clamp(GetJsonFloat(line, "\"snowMachineScanRadius\":"), SnowMachineRadiusMin, SnowMachineRadiusMax);
                         else if (line.Contains("bubbleSpawnAtPlayerEnabled")) this.bubbleSpawnAtPlayerEnabled = GetJsonInt(line, "\"bubbleSpawnAtPlayerEnabled\":") != 0;
                         else if (line.Contains("autoBubbleCollectEnabled")) this.autoBubbleCollectEnabled = GetJsonInt(line, "\"autoBubbleCollectEnabled\":") != 0;
                         else if (line.Contains("autoBubbleCollectRadius")) this.autoBubbleCollectRadius = Mathf.Clamp(GetJsonFloat(line, "\"autoBubbleCollectRadius\":"), 0f, 100f);
@@ -1174,7 +1202,21 @@ namespace HeartopiaMod
             else if (line.Contains("petFeedScanRadiusMeters")) this.petFeedScanRadiusMeters = Mathf.Clamp(GetJsonFloat(line, "\"petFeedScanRadiusMeters\":"), PetFeedMinScanRadiusMeters, PetFeedMaxScanRadiusMeters);
             else if (line.Contains("netCookInterval")) this.netCookInterval = GetJsonFloat(line, "\"netCookInterval\":");
             else if (line.Contains("netCookScanRadiusMeters")) this.netCookScanRadiusMeters = Mathf.Clamp(GetJsonFloat(line, "\"netCookScanRadiusMeters\":"), NetCookMinScanRadiusMeters, NetCookMaxScanRadiusMeters);
-            else if (line.Contains("netCookMiniGameOnly")) this.netCookMiniGameOnly = line.IndexOf("true", StringComparison.OrdinalIgnoreCase) >= 0 || GetJsonInt(line, "\"netCookMiniGameOnly\":") != 0;
+            else if (line.Contains("netCookAutoAssist"))
+            {
+                netCookAutoAssistSeen = true;
+                this.netCookAutoAssist = line.IndexOf("true", StringComparison.OrdinalIgnoreCase) >= 0
+                    || GetJsonInt(line, "\"netCookAutoAssist\":") != 0;
+            }
+            else if (line.Contains("netCookMiniGameOnly"))
+            {
+                bool legacy = line.IndexOf("true", StringComparison.OrdinalIgnoreCase) >= 0
+                    || GetJsonInt(line, "\"netCookMiniGameOnly\":") != 0;
+                if (!netCookAutoAssistSeen && legacy)
+                {
+                    this.netCookAutoAssist = true;
+                }
+            }
             else if (line.Contains("netCookMoveIngredients")) this.netCookMoveIngredients = line.IndexOf("true", StringComparison.OrdinalIgnoreCase) >= 0 || GetJsonInt(line, "\"netCookMoveIngredients\":") != 0;
             else if (line.Contains("netCookRememberStoves")) this.netCookRememberStoves = line.IndexOf("true", StringComparison.OrdinalIgnoreCase) >= 0 || GetJsonInt(line, "\"netCookRememberStoves\":") != 0;
             else if (line.Contains("netCookCaptureOwnOnly")) this.netCookCaptureOwnOnly = line.IndexOf("true", StringComparison.OrdinalIgnoreCase) >= 0 || GetJsonInt(line, "\"netCookCaptureOwnOnly\":") != 0;
@@ -1344,6 +1386,7 @@ namespace HeartopiaMod
             this.autoSnowHotkey = KeyCode.None;
             this.autoSandHotkey = KeyCode.None;
             this.autoPumpkinHotkey = KeyCode.None;
+            this.autoFurnitureRepairHotkey = KeyCode.None;
             this.seaCleanQteHotkey = KeyCode.None;
             this.keyEquipSeaCleaner = KeyCode.None;
             this.keyBypassOverlap = KeyCode.None;
@@ -1478,6 +1521,7 @@ namespace HeartopiaMod
                 case "Auto Snow Sculpture": this.autoSnowHotkey = newKey; break;
                 case "Auto Sand Sculpture": this.autoSandHotkey = newKey; break;
                 case "Auto Pumpkin Carving": this.autoPumpkinHotkey = newKey; break;
+                case "Auto Furniture Repair": this.autoFurnitureRepairHotkey = newKey; break;
                 case "Auto Sea Clean QTE": this.seaCleanQteHotkey = newKey; break;
                 case "Equip Sea Cleaner": this.keyEquipSeaCleaner = newKey; break;
                 case "Noclip": this.keyNoclip = newKey; break;

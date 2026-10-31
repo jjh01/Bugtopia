@@ -32,6 +32,7 @@ namespace HeartopiaMod
             "Insect Farm",
             "Bird Farm",
             "Mass Cook",
+            "Auto Cook Assist",
             "Auto Sell",
             "Homeland Farm",
             "Auto Puzzle",
@@ -39,6 +40,7 @@ namespace HeartopiaMod
             "Auto Ice Skating",
             "Ice Skating Seq",
             "Auto Snow",
+            "Auto Collect Snowballs",
             "Speed",
             "Noclip",
             "Bypass Overlap",
@@ -78,6 +80,7 @@ namespace HeartopiaMod
             "Persistent HUD",
             "Stranger Chat Bypass",
             "Chat Translate Unlock",
+            "Hide Mod UI/ESP In Photos",
         };
 
         private static readonly HashSet<string> StatusOverlayEntryLabelSet =
@@ -136,14 +139,14 @@ namespace HeartopiaMod
 
             // Radar → Filter counts. Hidden from the overlay by the Settings → Status Overlay
             // checkboxes (same catalog labels). The in-menu LIVE rail is not filtered by those.
-            int birdFilterCount = this.radarBirdSpeciesFilter.Count;
-            if (birdFilterCount > 0)
+            int birdFilterCount = this.CountDisplayedRadarSpeciesFilter(this.radarBirdSpeciesFilter);
+            if (this.radarBirdSpeciesFilter.Count > 0)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Birds", this.FormatSpeciesFilterStatus(birdFilterCount)));
             }
 
-            int insectFilterCount = this.radarInsectSpeciesFilter.Count;
-            if (insectFilterCount > 0)
+            int insectFilterCount = this.CountDisplayedRadarSpeciesFilter(this.radarInsectSpeciesFilter);
+            if (this.radarInsectSpeciesFilter.Count > 0)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Insects", this.FormatSpeciesFilterStatus(insectFilterCount)));
             }
@@ -219,6 +222,14 @@ namespace HeartopiaMod
                 entries.Add(this.CreateLiveFeatureEntry("Mass Cook", massCookStatus));
             }
 
+            if (this.netCookAutoAssist)
+            {
+                int watching = this.netCookAssistTargets.Count;
+                entries.Add(this.CreateLiveFeatureEntry(
+                    "Auto Cook Assist",
+                    watching > 0 ? ("Watching " + watching) : "On"));
+            }
+
             if (this.autoSellEnabled)
             {
                 entries.Add(this.CreateLiveFeatureEntry(
@@ -287,6 +298,14 @@ namespace HeartopiaMod
             if (this.autoSnowEnabled)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Auto Snow", "Active"));
+            }
+
+            // Auto collect snowballs owns its own toggle and scans machines in the background (it is not
+            // part of a sculpt session), so it gets its own row next to Auto Snow — the same shape as
+            // Auto Collect Bubbles below.
+            if (this.autoSnowCollectEnabled)
+            {
+                entries.Add(this.CreateLiveFeatureEntry("Auto Collect Snowballs", "Active"));
             }
 
             if (this.gameSpeed != 1.0f)
@@ -372,6 +391,12 @@ namespace HeartopiaMod
             if (this.quietAnimalCardPopups)
             {
                 entries.Add(this.CreateLiveFeatureEntry("Quiet Animal Cards", "Active"));
+            }
+
+            if (this.hideModUiInPhotos || this.hideModEspInPhotos)
+            {
+                // One line for both gates, named for both — the ESP-only case must not read as a UI line.
+                entries.Add(this.CreateLiveFeatureEntry("Hide Mod UI/ESP In Photos", "Active"));
             }
 
             if (this.activityRewardAutoClaim)

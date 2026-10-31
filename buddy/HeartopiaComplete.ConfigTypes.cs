@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppInterop.Runtime.Runtime;
@@ -75,6 +75,9 @@ namespace HeartopiaMod
             public int keyAutoSnow;
             public int keyAutoSand;
             public int keyAutoPumpkin;
+            public int keyAutoFurnitureRepair;
+            // Auto Furniture Repair enable flag (FurnitureAutoRepairFeature.cs). Off by default.
+            public bool autoFurnitureRepairEnabled;
             public int keySeaCleanQte;
             public int keyEquipSeaCleaner;
             // 0/absent = "use default" (radius can never legitimately be 0).
@@ -243,6 +246,8 @@ namespace HeartopiaMod
             public bool quietBpPayRewardPopup;
             public bool quietPetPhotoResultPopup;
             public bool quietAnimalCardPopups;
+            public bool hideModUiInPhotos = true;
+            public bool hideModEspInPhotos = true;
             public bool emoteUnlockEnabled;
             public bool paintStyleUnlockEnabled;
             public bool freePlaceRotateUnlockEnabled;
@@ -328,6 +333,7 @@ namespace HeartopiaMod
             public bool MasterLogSandSculpture;
             public bool MasterLogShowOffBypass;
             public bool MasterLogSnowSculpture;
+            public bool MasterLogSnowAutoCollect;
             public bool MasterLogSeaCleanQte;
             public bool MasterLogCorruptionCleanse;
             public bool MasterLogUnderwaterRadar;
@@ -372,6 +378,9 @@ namespace HeartopiaMod
             public float snowNextCycleDelaySeconds = 0.5f;  // gather -> next fill pause
             public int snowballUseLimit = 0;                // sculptures per run; 0 = unlimited
             public int snowQteSuccessCount = 20;            // perfect QTE reports per sculpture (0-20)
+            public bool autoSnowCollectEnabled;             // Auto collect snowballs (not persisted by Auto Snow Sculpture)
+            public float snowMachineScanSeconds = 2f;       // collector scan interval, seconds
+            public float snowMachineScanRadius = 30f;       // collector scan radius, metres
             public bool fastBubbleGenEnabled;
             public bool musicPlayerLoop;
             public bool musicPlayerNetworkMode;
@@ -386,7 +395,10 @@ namespace HeartopiaMod
             public string petFeedFoodByPet;
             public float netCookInterval;
             public float netCookScanRadiusMeters;
+            // Legacy: kept only so old Config.xml/keybinds files still deserialize. The live flag is
+            // netCookAutoAssist; this key is always written back as false (see HeartopiaComplete.Config.cs).
             public bool netCookMiniGameOnly;
+            public bool netCookAutoAssist;
             public bool netCookMoveIngredients;
             public bool netCookRememberStoves;
             public bool netCookSlotManualMode;

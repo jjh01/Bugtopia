@@ -372,6 +372,7 @@
     <Compile Include="HeartopiaComplete.UguiBirdsContent.cs" />
     <Compile Include="HeartopiaComplete.UguiRadarContent.cs" />
     <Compile Include="HeartopiaComplete.UguiRadarFilterContent.cs" />
+    <Compile Include="HeartopiaComplete.RadarCollectionFilter.cs" />
     <Compile Include="HeartopiaComplete.UguiNewFeaturesContent.cs" />
     <Compile Include="HeartopiaComplete.UguiSandSculptureContent.cs" />
     <Compile Include="HeartopiaComplete.UguiHobbyContent.cs" />
@@ -493,6 +494,7 @@
     <Compile Include="SnowSculptureFeature.cs" />
     <Compile Include="SandSculptureFeature.cs" />
     <Compile Include="PumpkinCarvingFeature.cs" />
+    <Compile Include="FurnitureAutoRepairFeature.cs" />
     <Compile Include="SandRoughSelectHook.cs" />
     <Compile Include="SeaCleanQteFeature.cs" />
     <Compile Include="CleanupBossFeature.cs" />
@@ -512,6 +514,7 @@
     <Compile Include="ClassInjectorHookTrimFeature.cs" />
     <Compile Include="PlayerLoopProbeFeature.cs" />
     <Compile Include="HeartopiaComplete.UguiOverlay.cs" />
+    <Compile Include="HeartopiaComplete.PhotoSnapUi.cs" />
     <Compile Include="ModCoroutines.cs" />
     <Compile Include="ModLogger.cs" />
     <Compile Include="FeatureLog.cs" />

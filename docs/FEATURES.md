@@ -1,4 +1,4 @@
-﻿# Features Reference
+# Features Reference
 
 Complete feature catalog for **Bugtopia**. Works identically under MelonLoader and BepInEx (same `HeartopiaComplete` core). Menu toggled with **Insert** by default. Labels support en, es, zh-CN, pt-BR.
 
@@ -609,6 +609,49 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
 - ⚠ Sends a real command to a live server on its own schedule, unattended.
 - Persisted; default off. Self → Main. Source: `buddy/HomeLikeFeature.cs`.
 
+### Auto Furniture Repair
+
+- Repairs your own broken furniture without standing next to it and without the repair-kit item —
+  the same send as a click on the in-game Repair button. The button shows when
+  `FurnitureBaseComponent.IsBroken` is true and the owner is the local player. `OwnerId` 0 also
+  shows the button (a zero owner is treated as Everyone); this feature does not send for it.
+- **Action:** the static `HomelandProtocolManager.Repair(uint netId)` over AuraMono — the manager
+  builds and sends the `RepairBuildItemNetworkCommand` itself, so this is byte-for-byte what the
+  button puts on the wire. No proximity, no interaction, no kit item.
+- **Scan:** while enabled, every `FurnitureBaseComponent` in the loaded world is enumerated through
+  the pinned AuraMono `GetComponents` path about every 2.5 s (5 s backoff after a failure). A broken
+  piece is sent only when `get_OwnerId` equals the local player net id
+  (`PlayerDataCenter.GetSelfNetPlayerId`). That is the same id the Repair button checks: Interaction
+  21 uses house-permission type Self, which the settings screen does not expose, so nobody else's
+  furniture can be repaired. `HomeNetId` is the house instance and is not this check. `OwnerId` 0
+  and a failed owner read are skipped, not sent. At most
+  8 repairs go out per pass; heals and refusals are still applied past that cap, and the rest wait
+  for the next pass. Each broken piece of yours gets one repair sent; it is then held in a pending set until
+  the server answers — never re-sent while waiting. A pending entry with no ack at all after 12 s
+  is dropped and the repair re-sent (covers a missing `RepairResultEvent` hook).
+- **Server ack decides success.** `RepairResultEvent` (dispatched by `HomelandSyncSystem` from the
+  server's `RepairBuildItemNetworkEvent`) carries `buildItemNetId` + `errorCode`; a non-zero code
+  (`RepairBuildItemFailed = 91`) means the server refused — that netId moves from the pending set
+  into a refused set that blocks re-sends (IsBroken stays true after a refusal, so merely dropping
+  the pending entry would let the scan send it again every 2.5 s). Only refusals of sends this
+  feature itself made are recorded: a late packet after the state was cleared (toggle off / scene
+  change) and refusals of other players' or manual repairs fall through and are ignored, so they
+  can never block auto-repair of a reused netId. The "repaired" moment is the next scan seeing
+  `IsBroken` clear on a pending netId whose `OwnerId` is still the local player. A reused netId that
+  is not ours is dropped with no toast. `SetRepaired` is the client write behind that clear and is
+  never called.
+- **State hygiene:** the pending set and the refused set are cleared on world change (netIds are
+  room-scoped) and when the toggle flips off, so a leftover entry can never suppress repair of a
+  reused id in the next town or be toasted as fixed.
+- **Toast:** "Auto fixed furniture: N" fires only when a repair actually lands (ack) and the piece's
+  `OwnerId` is still the local player, never on send; one line per healed piece. An empty component
+  scan reports "no broken furniture"; "scan unavailable" is only a failed query. Refused pieces are
+  counted in the scan status (`refused xN`) so a town where every broken piece was refused does not
+  report "no broken furniture".
+- ⚠ Sends real commands to a live server on its own schedule, unattended — your own broken furniture
+  is repaired without you doing anything while the toggle is on. Someone else's furniture is not.
+- Persisted; default off. Self → Main. Source: `buddy/FurnitureAutoRepairFeature.cs`.
+
 ### Anti-AFK
 
 - Periodically simulates mouse input to reduce idle kick.
@@ -755,6 +798,27 @@ mode**, so the mod's Pad Confirm / Cancel / Rotate / Move / Delete only doubled 
     but only when the in-game Translate toggle is off (never double-request the game's own path).
   Note: the Debug Log toggle is **session-only** — it is never saved to config, so it always starts
   off (it prints a line per chat message).
+
+### Clean Photos — hide mod surfaces in in-game photos (Self → Privacy sub-tab)
+
+Every in-game photo flow — the menu camera (**GamePhotoMode**) and the automatic **QuickSnap** shots on
+balloon / sightseeing / coaster / skate / hide-and-seek — hides the game's own UI panels for the capture
+frame, then reads the composited backbuffer. Mod canvases are not in the game's UI layer registry, so
+they were composited into every photo. The mod hooks the same
+`CanvasSnapStateRequestedEvent{active}` the game dispatches around each capture (payload table in
+[GAME_EVENTS.md](GAME_EVENTS.md)) and mirrors its hide window — no poll, no patch.
+
+| Toggle | Default | Covers |
+|---|---|---|
+| **Hide mod UI in photos** (`hideModUiInPhotos`) | ON | The six `CreateUguiWindow` canvases (menu shell, Avatar Studio, Action Panel, Building Move Panel, Dye Picker, Quest Assistant), toast root, status-overlay root |
+| **Hide mod ESP in photos** (`hideModEspInPhotos`) | ON | `HeartopiaModOverlay` (screen-space ESP tags / crosshair) and `Universal_Mushroom_Radar` (world-space radar markers) |
+
+The hide is re-applied at the end of every `LateUpdate` while a capture is in flight — the toast and
+status-overlay drivers re-show their roots in `OnUpdate`, and `QuickSnap` captures one frame after the
+event — and each root's `activeSelf` is restored from the value saved when the hide began, so a window
+the user had closed stays closed. A 10 s watchdog and a world-epoch change force the restore if a
+capture flow is torn down before its `active=false`. Implementation `HeartopiaComplete.PhotoSnapUi.cs`;
+roots register at the mod's own window-creation chokepoints only.
 
 ### Party & Events Auto-Decline (Self → Privacy sub-tab)
 
@@ -1318,6 +1382,7 @@ is not available at all (a boss run) or every spot refused in a row.
 - Safety stop after 90 s continuous run; 60 s re-enable cooldown.
 - Stationary throttling reduces multi-catch when player barely moves.
 - Pending server ACK tracking for burst catches.
+- Client-local birds (pendant long-tailed tit and any other netId `>= 4000000000`) are photographed with command `BirdNetId = 0` and the real static id. The farm still tracks the entity netId for cooldown and the capture count. A stand netId still forces command `BirdNetId = 0`, matching manual `SavePhotoData`.
 - Optional crash trace logging to file when verbose flags enabled in source.
 
 ---
@@ -1435,6 +1500,18 @@ Throttled background checks (`AutoEatTriggerCheckInterval`, `AutoRepairTriggerCh
 - **Snowballs in bag** counter — `BackPackSystem.GetUsableItemCount(5100, inSelfField:false)` via AuraMono, 1 s read throttle (refresh forced right after each gather and after the warehouse move); shows `?` pre-login (gated by `AuraMonoStaticFieldReadsAllowed`).
 - **Snowball limit** field (persisted, default **0 = all**): auto-disables with a toast after N gathered sculptures (1 ball each); the used counter resets on every enable.
 
+#### Auto collect snowballs
+
+- Toggle **Auto collect snowballs** on the same tab, **persisted** (`autoSnowCollectEnabled`) and **independent** of Auto Snow Sculpture — the collector runs with the sculptor off, and the sculptor runs with the collector off.
+- **State-read gated, never optimistic.** Each scan reads every own snow machine's ECS view data first and only then sends; a machine whose `_data` cannot be read gets nothing. Scan of `SnowMachineComponent` views (`TryAuraMonoGetComponentObjects`, pinned `List<uint>` + `FreeAuraMonoPins` in `finally`) → filter: netId < 4 000 000 000 (local-predicted views have an empty `_data`/`_furnitureBase`) → `_furnitureBase` → `get_OwnerId` == self → `TableData.GetSnowmachine(staticId) != null` (**the table row is the filter** — staticId is never hard-coded) → within the radius → nearest first, max **8** machines per scan.
+- **State read:** the boxed `_data` (`SnowMachineComponentData { state, ballCount, capacity, startTimestamp, duration }`, `state`: 0 Closed / 1 Making / 2 Idle) via `AuraMonoPinNew` + `mono_class_get_field_from_name` / `mono_field_get_offset` and `Marshal.ReadInt32` with the 2-pointer box header subtracted. `DataCenter.TryGetComponentData<T>` (a 28-byte struct out-param slot) is never used.
+- **What it sends** (AuraMono `TryAuraInvoke` on `SnowSculptureProtocolManager` statics, machine netId as the only argument — the same calls the in-game machine UI makes): `GatherSnowBall(netId)` whenever `ballCount > 0`, in **any** state (live: a harvested machine stays `Making` with `ballCount` 0 → the next ball is another harvest, never a restart); `OnSnowMachine(netId)` only when `state == Closed && ballCount == 0`. **Nothing** is sent on `Making`/`Idle` with `ballCount == 0` (a machine that is producing is left alone), and `OffSnowMachine` is neither resolved nor sent. The mod has no proximity check of its own beyond `snowMachineScanRadius`; the live harvest at 2.28 m was **inside** the vanilla 10 m interact-icon radius, so it does not show whether the server accepts the command from farther out (the plan's open item, §9.3). No animation, no panel.
+- **No bag cap.** The collector keeps harvesting and restarting closed machines however many snowballs are already in the bag. Confirmation is the machine, not the bag: on a gather the mod remembers that machine's `ballCount`; a later scan showing a lower `ballCount` adds the difference to the collected counter. If the cooldown elapsed and the count is not lower, the entry is dropped and another gather may be sent. No bag-count delta, no result-callback detour (`OnSnowMachineResult` / `GatherSnowBallResult` only receive an `ErrorCode`, never a netId).
+- **Per-machine cooldown 1.5 s** (`SnowAutoCollectSendCooldownSeconds`) on both sends; cooldown entries for machines no longer in the filtered set are pruned, and an unconfirmed gather snapshot for such a machine is released once its cooldown has elapsed (so a machine the player walked away from cannot hold a stale snapshot). Scan interval is the user slider (1–10 s, default **2**), scan radius is the user slider (10–60 m whole metres, default **30**; the live-verified gather worked at 2.28 m, the server-side interact ceiling is not confirmed past 10 m — see the plan's open item). Both are persisted and clamped on load.
+- **Live status line** `Snow machines: kept | bag current | collected this run` plus the internal status (`no machine in 30m (views=… local=… other=… table=… far=… unreadable=… first=…)`, `scan kept=… confirmed=… gather=… start=… wait=… fail=… pending=… (views=… firstFail=…)`, `no player position`, …). A `get_OwnerId` that fails to read reports `owner getter …` (counted as unreadable), while an unowned machine reports `owner 0 (unowned)` and a foreign owner reports `not owner` — a broken getter cannot look like an empty owner filter. The collected counter resets when the toggle is re-enabled; a world-epoch change clears the per-machine maps. On the tab the collector block (toggle, status, scan interval, scan radius) sits above **Auto Snow Sculpture**; the sculpture controls (bag count, snowball limit, delays, QTE, status box) start directly under that toggle.
+- **Interaction with Auto Snow Sculpture:** its "no snowballs in bag" **self-disable becomes a backoff** while the collector is on — the sculptor's next attempt moves to `max(SnowApiRetryBackoffSeconds, scan interval + 0.5 s)` instead of the sculptor switching itself off; the **Snowball limit** self-disable is unchanged. The sculptor sculpts whenever the bag has a snowball, and the collector keeps refilling it.
+- **Out of scope:** warehouse → bag transfer (the **Move snowballs to backpack** button already does it; live behavior is that a harvest lands in the **bag**, not the warehouse). Auto-collect also does not persist or imply `autoSnowEnabled`.
+
 #### Auto Click Icon
 
 - Configurable interval (default 50 ms).
@@ -1454,6 +1531,7 @@ Throttled background checks (`AutoEatTriggerCheckInterval`, `AutoRepairTriggerCh
 #### Debug
 
 - `MasterLogSnowSculpture` in `SnowSculptureFeature.cs` (default **false**) — `[SnowSculpture]` lines in `bugtopia.log`.
+- `MasterLogSnowAutoCollect` in `SnowSculptureFeature.cs` (default **false**, Settings → Logging row **Snow Auto Collect**) — `[SnowAutoCollect]` lines: the resolved handle list once the world-ready gate resolves (plus a one-time `resolve incomplete` line naming the missing handles), one line per accepted send (`GatherSnowBall sent netId=…`), each rejected send, and the per-scan status line. The gate itself logs `[WorldReady] snowball-autocollect …` when a resolve attempt fails or sleeps until the next world load.
 
 ### Sand Sculpting
 
@@ -1465,11 +1543,11 @@ Throttled background checks (`AutoEatTriggerCheckInterval`, `AutoRepairTriggerCh
   1. **FindBase** — scan streamed `SandSculpturesComponent` views (`TryAuraMonoGetComponentObjects`), nearest base within **60 m**; reads `_componentData { baseStaticId, roughStaticId }` from the boxed struct via field offsets. If none is found and **Auto-place base** is on, goes to **PlaceBase** (below) instead of just re-scanning.
   2. **StartSculpt** — rounds = `TableData.GetSandrough(roughStaticId).interval.Length`; quality gate `FeatureOpenSystem.IsFeatureOpen(SandSculptingQuality=300041)`; sends `StartMakingSandSculpture` only. **`CanStartSandSculpture` (PreStart) is never sent** — its `PreStartSandSculptureEvent(Ok)` reply makes the vanilla client *join* the sculpt mode (`GameSandMode` → `TrackModule` opens the swing-QTE track) and the player FSM sends a duplicate Start → in-game "Error" tip + a stuck QTE track. The server accepts Start+Finish without the handshake, so the whole PreStart path (and its `TrackModule.EndSand` cleanup) was removed.
   3. **SendFinish** — after the configurable **Finish delay** slider (default 3 s) sends `FinishMakingSandSculpture(base, successCount, perfectCount)`: all-perfect `(0, rounds)` when quality is open, else the vanilla-max `(1, 0)`.
-  4. **WaitRough** — polls (0.5 s, 12 s timeout) for the own `SandSculptureRoughComponent` (`ownerNetId == self`), reads `options[]` from its component data, then `ChooseSandSculptureProduct(roughNetId, productId)` (**rough** netId, not the base). **Never spoils, and prioritizes the collection:** the 14 real sculptures are `SandfinishedItem` ids **1–14**, decoys are **>14** (incl. name-trap duplicates 17/25/26) and picking a decoy yields `sandfinished 600299` = a **spoiled** sculpture. A draft carries **one or more** valid ids (≤14) + decoy fillers. When only one is valid there is no choice; when 2–3 are valid and **Prefer rare / uncollected models** is on, the mod ranks the valid ids by `(collectValue DESC, rarity DESC, id ASC)` — collectValue from the Pictorial (`PictorialSystem.TryGetPictorialData` → `_state`/`_starRate`: 2 = entry not collected, 1 = star below the current hobby-level cap, 0 = done), rarity from `Entity._rarity`, star cap from `HobbySystem.GetHobbyLevel(140)` (L1-2→3★, L3-4→4★, L5→5★). Fully **fail-closed** to smallest-valid-id. Map `SandfinishedItem 1..14 → Sandfinished 600100..600113` is a verified hardcoded array (`.research-record/sand-5star-priority.md`). Clears `PlayerDataComponent.SetSandRoughData(0)` afterwards.
+  4. **WaitRough** — polls (0.5 s, 12 s timeout) for the own `SandSculptureRoughComponent` (`ownerNetId == self`), reads `options[]` from its component data, then `ChooseSandSculptureProduct(roughNetId, productId)` (**rough** netId, not the base). **Never spoils, and prioritizes the collection:** the 14 real sculptures are `SandfinishedItem` ids **1–14**, decoys are **>14** (incl. name-trap duplicates 17/25/26) and picking a decoy yields `sandfinished 600299` = a **spoiled** sculpture. A draft carries **one or more** valid ids (≤14) + decoy fillers. When only one is valid there is no choice; when 2–3 are valid and **Prefer rare / uncollected models** is on, the mod ranks the valid ids by `(collectValue DESC, rarity DESC, id ASC)` — collectValue from the Pictorial (`PictorialSystem.TryGetPictorialData` → `_state`/`_starRate`: 2 = entry not collected, 1 = star below the current hobby-level cap, 0 = done), rarity from `Entity._rarity`, star cap from `HobbySystem.GetHobbyLevel(140)` (L1-2→3★, L3-4→4★, L5→5★). Fully **fail-closed** to smallest-valid-id. Map `SandfinishedItem 1..14 → Sandfinished 600100..600113` is a verified hardcoded array (`.research-record/sand-5star-priority.md`). Clears `PlayerDataComponent.SetSandRoughData(0)` afterwards. **Model-fit gate before Choose:** the chosen model is a Putitem too (`600100..600113`, burden 4..10; a forced decoy fills as the spoiled `600299`, burden 6) and spawns into the field as a build, so before `ChooseSandSculptureProduct` the mod asks the vanilla gate itself — `BuildModule.CheckCanPut(modelStaticId, out ErrorCode, 1)` (the Load bucket is resolved game-side, the mod passes no key); a refusal skips the choose with the game's toast text + a status line (the rounds are already spent, the rough expires server-side) and **blacklists the base on the first refusal** — the Load verdict is deterministic for the field's current state, so restarting Start+Finish on the same base only spends stamina; "Reset base blacklist" undoes it; no feature stop, clearing the Load makes the next cycle work. Only genuine capacity refusals gate (140 / config-missing codes are inconclusive, as in the place gate). The server's exact Load rules for sculpt output are not pinned down (no network-result recording is wired for `SelectSandSculptureEvent`), so the gate mirrors the client-side furniture rule. On the 12 s timeout the status line also reports the field's current burden and cap (`… stamina? field load N/M`; `BuildModule.GetCurrentCapacity()`/`GetMaxCapacity()` on the resolved module, best-effort — the numbers the vanilla Load widget shows) — finished sculptures are build entities that count against the field Load cap, so the number makes a load-saturated field visible right here instead of leaving the user to work it out by hand (the server's exact Load rules for sculpt output are not pinned down).
   5. **CloseDialog** — the rough spawns next to the player, so the vanilla FSM opens the `DialogueSimplePanel` "choose model" dialog; our protocol Choose bypassed its callback, so nothing closes it. Polls (0.25 s, 3 s timeout) `UIManager.GetView(DialogueSimplePanel)` (Type from the class pointer — never `Type.GetType`) and invokes its protected `CloseSelf()`.
-- **Auto-place base from backpack** (toggle, **off by default**): when FindBase finds nothing, place a fresh base ~0.8 m in front of the player via the game's generic build-placement command directly (no build-mode UI / camera), then rescan. **Out of sand bases in the bag stops the whole feature** (`autoSandEnabled = false`, not just auto-place) — no base can appear by retrying and the loop has nothing to sculpt. Other (non-terminal) failures disable just auto-place after 3 attempts. Path (`.research-record/sand-base-placement-helper.md`): scan bag for a `TableSandbase` item (`TableData.GetSandbase(staticId) != null`) → build a boxed `BuildPlaceData { BuildType=0, TransformData { LevelObjectNetId = putZoneId, LocalPos = root-local target, Angle, VirtualLinkLevelObjectNetId=[putZoneId] } }` where `buildRootNetId = LocalPlayerComponent.inFieldNetId` and `putZoneId = (ulong)root | (1<<32)` → `HomelandProtocolManager.SendBuildBatchOperation(bagItemNetId, buildRootNetId, IBuildData)` (the 3-param one-shot). No dedicated sand-place command exists; base placement goes through the generic build system. **No server position check** (build-overlap is bypassable).
+- **Auto-place base from backpack** (toggle, **off by default**): when FindBase finds nothing, place a fresh base ~0.8 m in front of the player via the game's generic build-placement command directly (no build-mode UI / camera), then rescan. **Out of sand bases in the bag stops the whole feature** (`autoSandEnabled = false`, not just auto-place) — no base can appear by retrying and the loop has nothing to sculpt. Other (non-terminal) failures disable just auto-place after 3 attempts. Path (`.research-record/sand-base-placement-helper.md`): scan bag for a `TableSandbase` item (`TableData.GetSandbase(staticId) != null`) → build a boxed `BuildPlaceData { BuildType=0, TransformData { LevelObjectNetId = putZoneId, LocalPos = root-local target, Angle, VirtualLinkLevelObjectNetId=[putZoneId] } }` where `buildRootNetId = LocalPlayerComponent.inFieldNetId` and `putZoneId = (ulong)root | (1<<32)` → `HomelandProtocolManager.SendBuildBatchOperation(bagItemNetId, buildRootNetId, IBuildData)` (the 3-param one-shot). No dedicated sand-place command exists; base placement goes through the generic build system. **No server position check** (build-overlap is bypassable). **Field Load gate:** a placed base is a Putitem (`600000`, burden 7) and consumes the field's Load budget like any furniture, so before sending the mod calls the vanilla gate itself — `BuildModule.CheckCanPut(staticId, out ErrorCode, 1)` on the resolved `BuildModule` module (the very method the vanilla build UI calls before a furniture put, `BuildModule.cs:2515`): outside a homeland it reports `Success` (`IsPlayerInHomeLand` gate is inside it), otherwise it consults `CraftBank.OverLoadData` — the OverLoadData the module keys per `BakeUtility.GetMyHomeNetId()` (`NormalModeCraftBank.cs:25`), the same bucket the Load widget reads (`BuildBurdenSystem.cs:348`) and the one the 312 tip is computed against. The call takes no Load key, so the mod cannot pick a wrong bucket — and one must be avoided: `inFieldNetId` (the field entity's netId, the parent the place command targets) is **not** the Load key; the bucket lives under `BakeUtility.GetMyHomeNetId()` = `PlayerDataCenter.homeNetId` = the build root (`BakeUtility.cs:107`, `HomelandSyncSystem.cs:2497`), and querying the wrong key only ever yields an empty bucket (burden 0) — never a false block, but a full field invisible too. `CheckCanPut` is `void`: the out `ErrorCode` is the whole verdict — `OverLoadData.CheckCanAddBurden` assigns it on every branch and `ErrorCode.Success == 0` only on the pass path (`OverLoadData.cs:260-313`). On refusal the mod surfaces the game's own TipConfig text in the player's language (`ErrorCode` is the tip id; 312 = "Insufficient Load. Unable to place.") as a toast, the status-box `Place:` line and a log line — no mod-side phrase to localize. The direct command used to bypass the client-side check, so on a near-full field the place was rejected server-side with **no message anywhere** and the loop just kept reporting "no base". Fail-open: an unresolvable check **or a game error that gives no Load verdict** (81000 `OverloadConfigNotFound` — staticId absent from the `BurdenConfig` scriptable, 92874 `WrongStaticId`, 140 `TypeCapacityError` — the per-type 300+ bookkeeping cap; `Putitem.limit` is 0 for the sand items, so the type counter, not Load) keeps the old send-anyway behaviour; only a genuine capacity refusal (312) or another real refusal code blocks the place (after 3 attempts auto-place turns off and the toast names the reason). (The mod no longer queries `BuildBurdenSystem.GetOverloadData` with any mod-chosen key: the direct `StructureItemEvent`/`RootNetId` chain it used to rely on books builds under the **build root**, not under `inFieldNetId` — the reviewer-confirmed `FurnitureBaseData.homeNetId = rootNetId` at `HomelandClientService.cs:1118` is `CreateBuildItem`'s build-root argument, and `HomelandSyncSystem.cs:2492-2497` sets `fieldNetId` and `homeNetId` from two different sources. The gate now sidesteps the whole question by calling the game's own accessor.) The burden/cap quoted in the gate status and the WaitRough timeout hint are `BuildModule.GetCurrentCapacity()`/`GetMaxCapacity()` — the numbers the vanilla Load widget shows.
 - **Auto-collect finished sculptures** (toggle, **off by default**): independently of the sculpt FSM, scan `SandFinishComponent` views, and for each own freshly-made one (`SandFinishComponentData.onNewMake == true`) take it into the backpack via `CharacterProtocolManager.PoseDeleteBuild(entityNetId)` (→ `TakeItemNetworkCommand`, exactly what vanilla `GardenSandCommand`/interact 85 does). One at a time (`PoseDeleteBuild` gates on a single in-flight build option cleared by the server's `BuildOptionRespondEvent`), throttled ~1.5 s between takes. **Off by default** because a continuous every-tick scan caught a mono teardown window and AV'd (2026-07-09); the pre-flight `BackPackSystem.GetBlankCount()` check that faulted was removed — a full bag now just gets a harmless server-side reject.
-- A base failing 3 times (start/finish rejected → rough timeout) is **blacklisted** for the session; "Reset base blacklist" button clears it. "Close stuck dialog" button force-closes a stray model dialog.
+- A base failing 3 times (start/finish rejected → rough timeout) is **blacklisted** for the session; a model-fit Load refusal blacklists it on the **first** refusal (retrying only spends stamina — the Load verdict cannot change between attempts). "Reset base blacklist" button clears both. "Close stuck dialog" button force-closes a stray model dialog.
 - **Hotkey:** Settings → Keybinds → **Auto Sand Sculpture** (rebindable, default unbound) toggles the main auto-sculpt on/off.
 - UI (all localized — en/es/zh-CN/pt-BR/th): the auto-sculpt toggle, auto-place + auto-collect toggles, finish-delay slider, a compact status box (state / done / collected / last status / place / collect), and the two buttons. **Quality note:** the mod maxes the controllable QTE input (all-perfect), but the actual star cap is gated by the player's **Lepka/sand hobby level (theme 140, L1–5): 5★ only at L5** — see memory `sand-sculpting-qte-model`.
 
@@ -1585,7 +1663,7 @@ See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#auto-sell-detail).
 ### Mass Cook (Net Cook)
 
 - Patrol-based mass cooking at saved cooking patrol points (position + rotation per station).
-- Scans radius for cook targets; optional mini-game-only mode.
+- Scans radius for cook targets. **Auto Cook Assist** is a separate toggle: while it is on, the mod watches the captured stoves and answers cooking mini-games (danger relief and collect) without preparing or starting a dish. Start Mass Cook stays available at the same time.
 - Config: interval, scan radius, wait at spot, cooking speed.
 - Coroutine warmup on mod init (`NetCookCoroutineWarmupRoutine`).
 - **Ingredient model (Move Ingredients / max-quantity):** a recipe is a flat list of material slots, **one slot = one unit** (a recipe needing 3 wheat has 3 slots). A slot is either a **specific item** (ingredient id ≥ 100) or an **"any &lt;category&gt;" slot** (id &lt; 100 = a `FoodMaterialType`, e.g. "any fish" = `Fish`). Category slots carry `materialId == 0` and only set `materialType`. Requirements track `IsCategory`/`MaterialType`; `BuildNetCookDemands` aggregates per-dish counts (specific items vs categories), and warehouse move + max-quantity match category slots via `NetCookItemMatchesCategory` → `CookingSystem.CheckFoodTypeSatisfied` (cached). Cooking itself relies on the game's `AutoFill` to fill slots from the bag, so the mod only needs to move enough matching items. See [cooking ingredient details](DECOMPILED_SOURCE_MAP.md#312-cooking-net-cook--mass-cook).
@@ -1634,8 +1712,8 @@ Capture used to settle the stove kind by **majority vote** and silently drop eve
 - **Census:** every candidate the scan resolves is snapshotted (`netCookScannedTargets`) **before** the desired-type prune, then filtered through the same range/own-plot culls the working set passes. ⚠️ Capture has several sources and two of them **return early**, so a snapshot taken only in the caller sees an already-filtered set. `TryResolveNetCookContextsFromCookBuildComponents` is the live route on a homeland ("Captured N stove(s) from cook-build registry") and it voted + pruned *inside* its pinned AuraMono block; its tail now runs after `FreeAuraMonoPins`, where the full `discoveredTargets` is snapshotted and the menu cache primed. Symptom when this was missing: 54 stoves + 5 clay stoves in range, census reported one type and the picker never appeared. Priming there is also what makes the same-menu merge work on the **first** capture — `IsCompatibleNetCookCooker` is cache-only, so an unprimed cache silently falls back to the staticId comparison. Cook-build owners the deferred expansion rejected on type are folded in as a lower-bound count (shown as `x~N`). A kind whose recipe cooker type cannot be resolved never enters the census — the picker only offers types it can actually pin.
 - **Picking a type** rebuilds the working set from that snapshot (no re-scan, no server traffic), swaps the recipe cache, then kicks the normal deferred expansion for the new type. The recipe for the incoming menu is chosen in this order: **what the user last selected for that menu** (`netCookRecipeByCookerType`, session-only), then the current selection if it happens to be in the new list, then the list's first entry. The memory rung matters: the head of a menu is not necessarily cookable — field log showed the clay-stove menu defaulting to `45519` and the start dying on `Missing ingredients for Prickly Pear & Apple Juice` on *every* switch, forcing a manual re-pick of `45524`. `TrySelectDefaultNetCookRecipeForCooker` (the capture path) consults the same memory before falling back to the first entry. If the snapshot holds nothing live for that kind, it falls back to a full capture with the pick applied.
 - While a pick is active, `IsCompatibleNetCookCooker` compares by recipe cooker type and both preferred-getters vote only inside the pinned group. A pick with **no** match in a given scan is suppressed for that scan (the capture behaves as before the feature) and cleared afterwards with a status line — a stale pin can never empty a capture.
-- **Session-only** and not saved to config: a pinned special-cooker type surviving a relog would make the next homeland capture 0 stoves for no visible reason. **Reset Capture** forgets it. Hidden in **Mini Game Only** and disabled while Mass Cook is running (a mid-run retarget would abandon cooking stoves).
-- **Mini Game Assist ignores the pick entirely and assists every kind in range.** Relieving danger and collecting finished food work on any cooker, and `IsCompatibleNetCookCooker` already returns true for everything while `netCookMiniGameOnly` is set — but that only covers a scan that *runs* in assist mode. `netCookTargets` normally comes from a mass-cook capture that pruned to one menu, and switching assist on afterwards inherited the narrowing: field log showed 56 cookers in range with `STARTED mini-game-only cookerStaticId=370001 targets=51` (the 5 clay stoves ignored), and `targets=5` with type 16 picked (the other 51 ignored). `WidenNetCookAssistTargetsToAllCookerTypes` puts the other kinds back from the scan snapshot — on the assist start path and on the Mini Game Only toggle, so the STOVES counter is honest before Start. It applies capture's own distance rule (skipped under Remember Stoves) so it cannot pull in stoves the capture would have culled.
+- **Session-only** and not saved to config: a pinned special-cooker type surviving a relog would make the next homeland capture 0 stoves for no visible reason. **Reset Capture** forgets it. The picker stays available while Auto Cook Assist is on. It is disabled while Mass Cook is running (a mid-run retarget would abandon cooking stoves).
+- **Auto Cook Assist watches every kind in the capture snapshot, and Mass Cook still cooks only the pinned menu.** The snapshot (`netCookScannedTargets`) is taken from the full cook-build scan before the menu prune. Assist keeps its own target objects, so turning assist on does not add clay stoves (or any other non-pinned kind) to `netCookTargets`. Relief and collect on a watched stove run only while Mass Cook does not own that dish (`PrepareInFlight`, `PrepareConfirmed`, phase 1/3/4, or phase 2 with a command stamp). An Idle stove in the mass-cook working set is free: Mass Cook may prepare on it. A non-Idle stove mass cook did not start is left to assist until it returns to Idle, including a dish started manually by the local player or by another player. There is no player filter; status is per burner.
 
 #### Permanent Stove Memory (`Remember Stoves` toggle)
 
@@ -1759,10 +1837,24 @@ See [BACKPACK_AND_ITEMS.md](./BACKPACK_AND_ITEMS.md#pet-feed-detail).
 - Toggle per category; select all / clear all.
 - **Filter** sub-tab — icon grids of known insects and birds. An empty selection shows and
   collects every species. A selection is an allow-list: Radar markers for that category, and
-  Insect Farm / Bird Farm (including Combined Farm), keep only those species. Saved in
+  Insect Farm / Bird Farm (including Combined Farm), keep only those species. A pendant prefab
+  (`p_bird_bird119_pendant`) resolves to the same species as the plain prefab, so a selected
+  long-tailed tit still gets a marker. Saved in
   `RadarConfigData` (`insectSpeciesFilter`, `birdSpeciesFilter`). Settings → Reset Defaults
   does not clear it. While a list is non-empty the status overlay shows `Birds` / `Insects`
   with `N filtered`; each row has a checkbox on Settings → Status Overlay.
+  Insects and Birds each have their own row of three secondary buttons under the search box:
+  **Unopened**, **Under 5 Stars**, and either **Not Catching Master** or **Not Photo Master**.
+  The bird label is the photography rank (`拍摄精通`), not the insect rank. A click replaces that
+  tab's allow-list. Clear still means show all. Search only filters the grid. Unopened is
+  pictorial state NotGet. Under 5 Stars is Got and `GetStarRate() < 5` (birds use
+  `PictorialBird.GetStarRate`, which reads `maxScore`; the bird `_starRate` field stays 0).
+  Not master is an open certification whose `GetCount()` is below the rank-4 threshold
+  (insect types 8001/8002 = 1200, 8003 = 720, 8004 = 480, 8005 = 300; bird types 7001/7002 = 2400,
+  7003 = 1440, 7004 = 1080, 7005 = 600). Species with `openCertification = 0` are excluded.
+  Hidden book ids 51305, 51406, 51503 and 63001 are excluded from the quick sets. A predicate
+  that matches nothing is stored as the sentinel id 1 in the existing list, so the allow-list
+  stays restrictive and the summary shows `0 selected`.
 - Max distance slider (25–1000 m, default 75 m).
 - Marker styles: **Default** (icon markers) or **Simple Text**.
 - Force refresh scan button.
@@ -2272,6 +2364,7 @@ Sections typically include:
 | UI Theme | Accent, text, tab, window, panel colors; opacity; scale; HSV picker |
 | Localization | Language: en, es, zh-CN, pt-BR |
 | Notifications | Enable, screen position (9 positions) |
+| Behavior | Auto start/close lobby flow, ID display, Block Input |
 | Overlay | Status overlay toggle |
 | Performance | FPS bypass; **FPS Watchdog** (see below); LOD override (game default / better / performance / custom bias & max level) |
 | Misc | Restore defaults, export-related options |
